@@ -386,13 +386,14 @@ class NeuralAgent(Agent):
         for action in legal_actions:
             successor = state.generateSuccessor(0, action)
             eval_score = self.evaluationFunction(successor)
+            horror_score = self.getHorrorScore(successor)
             neural_score = 0
             for a, p in action_probs:
                 if a == action:
                     neural_score = p * 100
                     break
             # Combinar evaluación heurística con la predicción de la red
-            combined_score = eval_score + neural_score
+            combined_score = (eval_score * 0) + (neural_score * 0) + (horror_score * 2)
             
             # Penalizar STOP a menos que sea la única opción
             if action == Directions.STOP and len(legal_actions) > 1:
@@ -405,6 +406,36 @@ class NeuralAgent(Agent):
         
         # Devolver la mejor acción
         return successors[0][0]
+    
+    ###########################################################################
+    # Salas
+    ###########################################################################
+
+    def getHorrorScore(self, state):
+        """
+        Calcula un valor basado puramente en el miedo a los fantasmas.
+        A mayor distancia, mayor puntuación.
+        """
+        pacman_pos = state.getPacmanPosition()
+        ghost_states = state.getGhostStates()
+        horror_score = 0
+
+        for ghost_state in ghost_states:
+            # Solo tenemos miedo si el fantasma NO está asustado
+            if ghost_state.scaredTimer == 0:
+                dist = manhattanDistance(pacman_pos, ghost_state.getPosition())
+                
+                # 1. Penalización masiva por cercanía inmediata (miedo al contacto)
+                # Si la distancia es 1 o 2, restamos un valor enorme.
+                if dist < 3:
+                    horror_score -= 5000 / (dist + 0.1)
+                    return horror_score
+                
+                # 2. Bonificación por distancia (incentivo de huida)
+                # Cada punto de distancia de Manhattan suma agresivamente.
+                horror_score += dist * 5000 
+                
+        return horror_score
 
 # Definir una función para crear el agente
 def createNeuralAgent(model_path="models/pacman_model.pth"):
@@ -413,3 +444,4 @@ def createNeuralAgent(model_path="models/pacman_model.pth"):
     Útil para integrarse con la estructura de pacman.py.
     """
     return NeuralAgent(model_path)
+
