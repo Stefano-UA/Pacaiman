@@ -31,11 +31,12 @@ import sys
 #######################
 
 ###################################################
-# Ahmed 
+# Ahmed
 ###################################################
 import gamedata # Para la extraccion de datos de la partida
 import random
-random.seed(42) # Para reproducibilidad de los resultados
+if not os.getenv('PACMAN_RANDOM'):
+    random.seed(42) # Para reproducibilidad de los resultados
 ###################################################
 
 class Agent:
@@ -559,7 +560,7 @@ class Game:
 
     def __init__(self, agents, display, rules, startingIndex=0, muteAgents=False, catchExceptions=False):
         ###################################################
-        # Ahmed 
+        # Ahmed
         ###################################################
         self.data_collector = None  # Se asignará desde fuera
         ###################################################
@@ -668,7 +669,7 @@ class Game:
             move_time = 0
             skip_action = False
             ###################################################
-            # Ahmed 
+            # Ahmed
             ###################################################
             current_state = self.state.deepCopy() # Capturar el estado actual ANTES de la acción
             ###################################################
@@ -764,7 +765,7 @@ class Game:
                 self.state = self.state.generateSuccessor(agentIndex, action)
 
             ###################################################
-            # Ahmed 
+            # Ahmed
             ###################################################
             # AQUÍ es donde capturamos los datos
             if self.data_collector and agentIndex == 0:

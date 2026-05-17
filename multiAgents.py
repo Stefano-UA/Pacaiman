@@ -4,7 +4,7 @@
 # educational purposes provided that (1) you do not distribute or publish
 # solutions, (2) you retain this notice, and (3) you provide clear
 # attribution to UC Berkeley, including a link to http://ai.berkeley.edu.
-# 
+#
 # Attribution Information: The Pacman AI projects were developed at UC Berkeley.
 # The core projects and autograders were primarily created by John DeNero
 # (denero@cs.berkeley.edu) and Dan Klein (klein@cs.berkeley.edu).
@@ -18,7 +18,8 @@ import os
 from util import manhattanDistance
 from game import Directions
 import random, util
-random.seed(42)  # For reproducibility
+if not os.getenv('PACMAN_RANDOM'):
+    random.seed(42)  # For reproducibility
 from game import Agent
 from pacman import GameState
 
@@ -105,7 +106,7 @@ class MultiAgentSearchAgent(Agent):
     is another abstract class.
     """
 
-    def __init__(self, evalFn = 'scoreEvaluationFunction', depth = '2'):
+    def __init__(self, evalFn = 'scoreEvaluationFunction', depth = '5'):
         self.index = 0 # Pacman is always agent index 0
         self.evaluationFunction = util.lookup(evalFn, globals())
         self.depth = int(depth)
@@ -119,16 +120,16 @@ class MinimaxAgent(MultiAgentSearchAgent):
         """
         Returns the minimax action using self.depth and self.evaluationFunction.
         """
-        
+
         def minimax(agentIndex, depth, gameState):
             """
             Recursive minimax function
-            
+
             Args:
-            - agentIndex: Current agent (0=Pacman, 1+=Ghosts)  
+            - agentIndex: Current agent (0=Pacman, 1+=Ghosts)
             - depth: Current depth in the game tree
             - gameState: Current state of the game
-            
+
             Returns:
             - Best evaluation score for this state
             """
@@ -139,17 +140,17 @@ class MinimaxAgent(MultiAgentSearchAgent):
             # Pacman's turn (Maximizer)
             if agentIndex == 0:
                 return maxValue(agentIndex, depth, gameState)
-            # Ghost's turn (Minimizer)  
+            # Ghost's turn (Minimizer)
             else:
                 return minValue(agentIndex, depth, gameState)
-        
+
         def maxValue(agentIndex, depth, gameState):
             """
             Handles Pacman's moves (maximizing player)
             """
             v = float('-inf')  # Start with worst possible value
             legalActions = gameState.getLegalActions(agentIndex)
-            
+
             # No legal actions available
             if not legalActions:
                 return self.evaluationFunction(gameState)
@@ -167,7 +168,7 @@ class MinimaxAgent(MultiAgentSearchAgent):
             """
             v = float('inf')  # Start with best possible value for Pacman
             legalActions = gameState.getLegalActions(agentIndex)
-            
+
             # No legal actions available
             if not legalActions:
                 return self.evaluationFunction(gameState)
@@ -175,7 +176,7 @@ class MinimaxAgent(MultiAgentSearchAgent):
             # Determine next agent and depth
             nextAgent = agentIndex + 1
             nextDepth = depth
-            
+
             # If all ghosts have moved, return to Pacman and increment depth
             if nextAgent == gameState.getNumAgents():
                 nextAgent = 0      # Back to Pacman
@@ -196,7 +197,7 @@ class MinimaxAgent(MultiAgentSearchAgent):
             successor = gameState.generateSuccessor(0, action)
             # Start minimax with first ghost (agent 1) at current depth
             score = minimax(1, 0, successor)
-            
+
             if score > bestScore:
                 bestScore = score
                 bestAction = action
@@ -212,8 +213,148 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
         """
         Returns the minimax action using self.depth and self.evaluationFunction
         """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        def alphaBeta(agentIndex, depth, gameState, alpha, beta):
+            if gameState.isWin() or gameState.isLose() or depth == self.depth:
+                return self.evaluationFunction(gameState)
+
+            if agentIndex == 0:
+                return maxValue(agentIndex, depth, gameState, alpha, beta)
+            else:
+                return minValue(agentIndex, depth, gameState, alpha, beta)
+
+        def maxValue(agentIndex, depth, gameState, alpha, beta):
+            v = float('-inf')
+            legalActions = gameState.getLegalActions(agentIndex)
+
+            if not legalActions:
+                return self.evaluationFunction(gameState)
+
+            for action in legalActions:
+                successor = gameState.generateSuccessor(agentIndex, action)
+                v = max(v, alphaBeta(1, depth, successor, alpha, beta))
+                if v > beta:
+                    return v
+                alpha = max(alpha, v)
+            return v
+
+        def minValue(agentIndex, depth, gameState, alpha, beta):
+            v = float('inf')
+            legalActions = gameState.getLegalActions(agentIndex)
+
+            if not legalActions:
+                return self.evaluationFunction(gameState)
+
+            nextAgent = agentIndex + 1
+            nextDepth = depth
+
+            if nextAgent == gameState.getNumAgents():
+                nextAgent = 0
+                nextDepth = depth + 1
+
+            for action in legalActions:
+                successor = gameState.generateSuccessor(agentIndex, action)
+                v = min(v, alphaBeta(nextAgent, nextDepth, successor, alpha, beta))
+                if v < alpha:
+                    return v
+                beta = min(beta, v)
+            return v
+
+        bestAction = None
+        bestScore = float('-inf')
+        alpha = float('-inf')
+        beta = float('inf')
+
+        for action in gameState.getLegalActions(0):
+            successor = gameState.generateSuccessor(0, action)
+            score = alphaBeta(1, 0, successor, alpha, beta)
+
+            if score > bestScore:
+                bestScore = score
+                bestAction = action
+
+            alpha = max(alpha, bestScore)
+
+        return bestAction
+
+class AlphaBetaRnAgent(MultiAgentSearchAgent):
+    '''
+    Minimax agent with alpha-beta pruning and randomized tie-breaking
+    '''
+    tolerance = 0.0
+
+    def getAction(self, gameState):
+        '''
+        Returns the minimax action using self.depth and self.evaluationFunction
+        '''
+        def alphaBeta(agentIndex, depth, gameState, alpha, beta):
+            if gameState.isWin() or gameState.isLose() or depth == self.depth:
+                return self.evaluationFunction(gameState)
+
+            if agentIndex == 0:
+                return maxValue(agentIndex, depth, gameState, alpha, beta)
+            else:
+                return minValue(agentIndex, depth, gameState, alpha, beta)
+
+        def maxValue(agentIndex, depth, gameState, alpha, beta):
+            v = float('-inf')
+            legalActions = gameState.getLegalActions(agentIndex)
+
+            if not legalActions:
+                return self.evaluationFunction(gameState)
+
+            for action in legalActions:
+                successor = gameState.generateSuccessor(agentIndex, action)
+                v = max(v, alphaBeta(1, depth, successor, alpha, beta))
+                if v > beta:
+                    return v
+                alpha = max(alpha, v)
+            return v
+
+        def minValue(agentIndex, depth, gameState, alpha, beta):
+            v = float('inf')
+            legalActions = gameState.getLegalActions(agentIndex)
+
+            if not legalActions:
+                return self.evaluationFunction(gameState)
+
+            nextAgent = agentIndex + 1
+            nextDepth = depth
+
+            if nextAgent == gameState.getNumAgents():
+                nextAgent = 0
+                nextDepth = depth + 1
+
+            for action in legalActions:
+                successor = gameState.generateSuccessor(agentIndex, action)
+                v = min(v, alphaBeta(nextAgent, nextDepth, successor, alpha, beta))
+                if v < alpha:
+                    return v
+                beta = min(beta, v)
+            return v
+
+        bestActions = []
+        bestScore = float('-inf')
+        alpha = float('-inf')
+        beta = float('inf')
+
+        for action in gameState.getLegalActions(0):
+            successor = gameState.generateSuccessor(0, action)
+            score = alphaBeta(1, 0, successor, alpha, beta)
+
+            if bestScore == float('-inf'):
+                tolerance_window = 0.0
+            else:
+                tolerance_window = type(self).tolerance * abs(bestScore)
+
+            if score > bestScore + tolerance_window:
+                bestScore = score
+                bestActions = [action]
+            elif abs(score - bestScore) <= tolerance_window:
+                bestActions.append(action)
+                bestScore = max(bestScore, score)
+            alpha = max(alpha, bestScore)
+
+        return random.choice(bestActions)
 
 class ExpectimaxAgent(MultiAgentSearchAgent):
     """
@@ -258,8 +399,9 @@ class NeuralAgent(Agent):
         self.model = None
         self.input_size = None
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f'Using {'cuda' if torch.cuda.is_available() else 'cpu'}!')
         self.load_model(model_path)
-        
+
         # Mapeo de índices a acciones
         self.idx_to_action = {
             0: Directions.STOP,
@@ -268,13 +410,13 @@ class NeuralAgent(Agent):
             3: Directions.EAST,
             4: Directions.WEST
         }
-        
+
         # Para evaluar alternativas
         self.action_to_idx = {v: k for k, v in self.idx_to_action.items()}
-        
+
         # Contador de movimientos
         self.move_count = 0
-        
+
         print(f"NeuralAgent inicializado, usando dispositivo: {self.device}")
 
     def load_model(self, model_path):
@@ -283,16 +425,16 @@ class NeuralAgent(Agent):
             if not os.path.exists(model_path):
                 print(f"ERROR: No se encontró el modelo en {model_path}")
                 return False
-                
+
             # Cargar el modelo
             checkpoint = torch.load(model_path, map_location=self.device)
             self.input_size = checkpoint['input_size']
-            
+
             # Crear y cargar el modelo
             self.model = PacmanNet(self.input_size, 128, 5).to(self.device)
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.model.eval()  # Modo evaluación
-            
+
             print(f"Modelo cargado correctamente desde {model_path}")
             print(f"Tamaño de entrada: {self.input_size}")
             return True
@@ -305,28 +447,28 @@ class NeuralAgent(Agent):
         # Obtener dimensiones del tablero
         walls = state.getWalls()
         width, height = walls.width, walls.height
-        
+
         # Crear una matriz numérica
         # 0: pared, 1: espacio vacío, 2: comida, 3: cápsula, 4: fantasma, 5: Pacman
         numeric_map = np.zeros((width, height), dtype=np.float32)
-        
+
         # Establecer espacios vacíos (todo lo que no es pared comienza como espacio vacío)
         for x in range(width):
             for y in range(height):
                 if not walls[x][y]:
                     numeric_map[x][y] = 1
-        
+
         # Agregar comida
         food = state.getFood()
         for x in range(width):
             for y in range(height):
                 if food[x][y]:
                     numeric_map[x][y] = 2
-        
+
         # Agregar cápsulas
         for x, y in state.getCapsules():
             numeric_map[x][y] = 3
-        
+
         # Agregar fantasmas
         for ghost_state in state.getGhostStates():
             ghost_x, ghost_y = int(ghost_state.getPosition()[0]), int(ghost_state.getPosition()[1])
@@ -335,14 +477,14 @@ class NeuralAgent(Agent):
                 numeric_map[ghost_x][ghost_y] = 6  # Fantasma asustado
             else:
                 numeric_map[ghost_x][ghost_y] = 4  # Fantasma normal
-        
+
         # Agregar Pacman
         pacman_x, pacman_y = state.getPacmanPosition()
         numeric_map[int(pacman_x)][int(pacman_y)] = 5
-        
+
         # Normalizar
         numeric_map = numeric_map / 6.0
-        
+
         return numeric_map
 
     def evaluationFunction(self, state):
@@ -351,39 +493,39 @@ class NeuralAgent(Agent):
         """
         if self.model is None:
             return 0  # Si no hay modelo, devolver 0
-        
+
         # Convertir a matriz
         state_matrix = self.state_to_matrix(state)
-        
+
         # Convertir a tensor
         state_tensor = torch.FloatTensor(state_matrix).unsqueeze(0).to(self.device)
-        
+
         # Obtener predicciones
         with torch.no_grad():
             output = self.model(state_tensor)
             probabilities = torch.nn.functional.softmax(output, dim=1).cpu().numpy()[0]
-        
+
         # Obtener acciones legales
         legal_actions = state.getLegalActions()
-        
+
         # Aplicar heurísticas adicionales, similar a betterEvaluationFunction
         score = state.getScore()
-        
+
         # Mejorar la evaluación con conocimiento del dominio
         pacman_pos = state.getPacmanPosition()
         food = state.getFood().asList()
         ghost_states = state.getGhostStates()
-        
+
         # Factor 1: Distancia a la comida más cercana
         if food:
             min_food_distance = min(manhattanDistance(pacman_pos, food_pos) for food_pos in food)
             score += 1.0 / (min_food_distance + 1)
-        
+
         # Factor 2: Proximidad a fantasmas
         for ghost_state in ghost_states:
             ghost_pos = ghost_state.getPosition()
             ghost_distance = manhattanDistance(pacman_pos, ghost_pos)
-            
+
             if ghost_state.scaredTimer > 0:
                 # Si el fantasma está asustado, acercarse a él
                 score += 50 / (ghost_distance + 1)
@@ -391,13 +533,13 @@ class NeuralAgent(Agent):
                 # Si no está asustado, evitarlo
                 if ghost_distance <= 2:
                     score -= 200  # Gran penalización por estar demasiado cerca
-        
+
         # Combinar la puntuación de la red con la heurística
         neural_score = 0
         for i, action in enumerate(self.idx_to_action.values()):
             if action in legal_actions:
                 neural_score += probabilities[i] * 100
-        
+
         return score + neural_score
 
     def getAction(self, state):
@@ -406,35 +548,35 @@ class NeuralAgent(Agent):
         y heurísticas adicionales.
         """
         self.move_count += 1
-        
+
         # Si no hay modelo, hacer un movimiento aleatorio
         if self.model is None:
             print("ERROR: Modelo no cargado. Haciendo movimiento aleatorio.")
             exit()
             legal_actions = state.getLegalActions()
             return random.choice(legal_actions)
-        
+
         # Obtener acciones legales
         legal_actions = state.getLegalActions()
-        
+
         # Evaluación directa con la red neuronal
         state_matrix = self.state_to_matrix(state)
         state_tensor = torch.FloatTensor(state_matrix).unsqueeze(0).to(self.device)
-        
+
         with torch.no_grad():
             output = self.model(state_tensor)
             probabilities = torch.nn.functional.softmax(output, dim=1).cpu().numpy()[0]
-        
+
         # Mapear índices del modelo a acciones del juego
         action_probs = []
         for idx, prob in enumerate(probabilities):
             action = self.idx_to_action[idx]
             if action in legal_actions:
                 action_probs.append((action, prob))
-        
+
         # Ordenar por probabilidad (mayor a menor)
         action_probs.sort(key=lambda x: x[1], reverse=True)
-        
+
         # Exploración: con una probabilidad decreciente, elegir aleatoriamente
         exploration_rate = 0.2 * (0.99 ** self.move_count)  # Disminuye con el tiempo
         if random.random() < exploration_rate:
@@ -442,7 +584,7 @@ class NeuralAgent(Agent):
             if len(legal_actions) > 1 and Directions.STOP in legal_actions:
                 legal_actions.remove(Directions.STOP)
             return random.choice(legal_actions)
-        
+
         # Evaluación alternativa: generar sucesores y evaluar cada uno
         successors = []
         for action in legal_actions:
@@ -456,19 +598,19 @@ class NeuralAgent(Agent):
                     break
             # Combinar evaluación heurística con la predicción de la red
             combined_score = (eval_score * 0) + (neural_score * 0) + (horror_score * 2)
-            
+
             # Penalizar STOP a menos que sea la única opción
             if action == Directions.STOP and len(legal_actions) > 1:
                 combined_score -= 50
-                
+
             successors.append((action, combined_score))
-        
+
         # Ordenar por puntuación combinada
         successors.sort(key=lambda x: x[1], reverse=True)
-        
+
         # Devolver la mejor acción
         return successors[0][0]
-    
+
     ###########################################################################
     # Salas
     ###########################################################################
@@ -486,17 +628,17 @@ class NeuralAgent(Agent):
             # Solo tenemos miedo si el fantasma NO está asustado
             if ghost_state.scaredTimer == 0:
                 dist = manhattanDistance(pacman_pos, ghost_state.getPosition())
-                
+
                 # 1. Penalización masiva por cercanía inmediata (miedo al contacto)
                 # Si la distancia es 1 o 2, restamos un valor enorme.
                 if dist < 3:
                     horror_score -= 5000 / (dist + 0.1)
                     return horror_score
-                
+
                 # 2. Bonificación por distancia (incentivo de huida)
                 # Cada punto de distancia de Manhattan suma agresivamente.
-                horror_score += dist * 5000 
-                
+                horror_score += dist * 5000
+
         return horror_score
 
 # Definir una función para crear el agente

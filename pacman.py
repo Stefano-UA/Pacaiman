@@ -53,7 +53,7 @@ import time
 import random
 import os
 ###################################################
-# Ahmed 
+# Ahmed
 ###################################################
 import gamedata
 from playback import CSVPlaybackAgent
@@ -575,12 +575,12 @@ def readCommand(argv):
     parser.add_option('--timeout', dest='timeout', type='int',
                       help=default('Maximum length of time an agent can spend computing in a single game'), default=30)
     ###################################################
-    # Ahmed 
+    # Ahmed
     ###################################################
 
-    parser.add_option('--csv', dest='csvFile', 
+    parser.add_option('--csv', dest='csvFile',
 
-                      help='CSV file path to replay game actions', 
+                      help='CSV file path to replay game actions',
 
                       default=None)
 
@@ -602,7 +602,8 @@ def readCommand(argv):
     args = dict()
 
     # Fix the random seed
-    random.seed('42')
+    if not os.getenv('PACMAN_RANDOM'):
+        random.seed('42')
 
     # Choose a layout
     args['layout'] = layout.getLayout(options.layout)
@@ -613,14 +614,14 @@ def readCommand(argv):
     noKeyboard = options.gameToReplay == None and (
         options.textGraphics or options.quietGraphics)
     ###################################################
-    # Ahmed 
+    # Ahmed
     ###################################################
     # Choose a Pacman agent
     noKeyboard = options.gameToReplay == None and (
         options.textGraphics or options.quietGraphics)
 
     if options.csvFile:
-        # Modo reproducción desde CSV  
+        # Modo reproducción desde CSV
         args['pacman'] = CSVPlaybackAgent(options.csvFile)
         print(f"Modo reproducción: usando acciones de {options.csvFile}")
     else:
@@ -744,9 +745,9 @@ def runGames(layout, pacman, ghosts, display, numGames, record, numTraining=0, c
 
     # Fijar semilla consistente
 
-    seed = '42'  # o cualquier valor fijo
-
-    random.seed(seed)
+    if not os.getenv('PACMAN_RANDOM'):
+        seed = '42'  # o cualquier valor fijo
+        random.seed(seed)
     ###################################################
     for i in range(numGames):
         beQuiet = i < numTraining

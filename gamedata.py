@@ -9,48 +9,48 @@ class GameDataCollector:
         self.output_dir = output_dir
         self.replay_mode = replay_mode
         self.game_info = {}
-        
+
         if not replay_mode and not os.path.exists(output_dir):
             os.makedirs(output_dir)
-    
+
     def capture_step(self, agent_index, state, action, result_state=None):
         """Captura un paso completo del juego con representación de mapa"""
         if self.replay_mode:
             return
-        
+
         # Obtener dimensiones del tablero
         walls = state.getWalls()
         width, height = walls.width, walls.height
-        
+
         # Crear una matriz vacía llena de espacios
         game_map = [[' ' for _ in range(height)] for _ in range(width)]
-        
+
         # Agregar paredes (%)
         for x in range(width):
             for y in range(height):
                 if walls[x][y]:
                     game_map[x][y] = '%'
-        
+
         # Agregar comida (.)
         food = state.getFood()
         for x in range(width):
             for y in range(height):
                 if food[x][y]:
                     game_map[x][y] = '.'
-        
+
         # Agregar cápsulas (o)
         for x, y in state.getCapsules():
             game_map[x][y] = 'o'
-        
+
         # Agregar fantasmas (G)
         for ghost_state in state.getGhostStates():
             ghost_x, ghost_y = int(ghost_state.getPosition()[0]), int(ghost_state.getPosition()[1])
             game_map[ghost_x][ghost_y] = 'G'
-        
+
         # Agregar Pacman (P)
         pacman_x, pacman_y = state.getPacmanPosition()
         game_map[int(pacman_x)][int(pacman_y)] = 'P'
-        
+
         # Convertir el mapa a formato numérico
         # 0: pared (%)
         # 1: espacio vacío ( )
@@ -77,7 +77,7 @@ class GameDataCollector:
                 else:
                     row.append(1)  # Default a espacio vacío
             numeric_map.append(row)
-        
+
         # Datos del paso
         step_data = {
             'timestamp': datetime.now().isoformat(),
@@ -90,9 +90,9 @@ class GameDataCollector:
             # Mapa como matriz numérica (formato JSON)
             'map_matrix': json.dumps(numeric_map)
         }
-        
+
         self.current_game_data.append(step_data)
-    
+
     def set_game_info(self, layout_name, seed):
         """Guarda información del juego"""
         self.game_info = {
@@ -100,12 +100,12 @@ class GameDataCollector:
             'seed': seed,
             'timestamp': datetime.now().isoformat()
         }
-    
+
     def save_game_data(self, game_id):
         """Guarda los datos del juego actual"""
         if self.replay_mode:
             return
-        
+
         if not os.path.exists(self.output_dir):
             game_id = 0
         else:
@@ -114,22 +114,22 @@ class GameDataCollector:
         # Crear el nombre del archivo
         # del timestamp solo nos quedamos con la fecha dia/mes/año
         steps_filename = os.path.join(self.output_dir, f"game_{game_id}.csv")
-        
+
         # Guardar los pasos del juego
         fieldnames = [
             'timestamp', 'agent_index', 'action', 'score',
             'is_win', 'is_lose', 'game_over', 'map_matrix'
         ]
-        
+
         with open(steps_filename, 'w', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             for step in self.current_game_data:
                 writer.writerow(step)
-        
+
         print(f"Datos del juego {game_id} guardados en {steps_filename}")
         self.current_game_data = []
-    
+
     def _visualize_map(self, numeric_map):
         """Convierte la matriz numérica a un mapa visual (para debug)"""
         visual_map = []
@@ -165,7 +165,7 @@ class GameDataCollector:
 #         # Crear directorio si no existe
 #         if not os.path.exists(output_dir):
 #             os.makedirs(output_dir)
-    
+
 #     def capture_step(self, agent_index, state, action, result_state=None):
 #         """Captura un paso completo del juego"""
 #         if self.replay_mode:
@@ -191,19 +191,19 @@ class GameDataCollector:
 #             'is_lose': state.isLose(),
 #             'game_over': state.isWin() or state.isLose()
 #         }
-        
+
 #         # Si hay un estado resultado, agregar información adicional
 #         if result_state:
 #             step_data['score_change'] = result_state.getScore() - state.getScore()
 #             step_data['food_eaten'] = state.getNumFood() - result_state.getNumFood()
-        
+
 #         self.current_game_data.append(step_data)
-    
+
 #     def _serialize_grid(self, grid):
 #         """Convierte una Grid a string para guardar en CSV"""
-#         return ','.join([''.join(['1' if grid[x][y] else '0' for y in range(grid.height)]) 
+#         return ','.join([''.join(['1' if grid[x][y] else '0' for y in range(grid.height)])
 #                         for x in range(grid.width)])
-    
+
 #     def save_game_data(self, game_id):
 #         if self.replay_mode:
 #             return  # No guardar en modo reproducción
@@ -217,34 +217,34 @@ class GameDataCollector:
 #         # Crear el nombre del archivo
 #         # del timestamp solo nos quedamos con la fecha dia/mes/año
 #         filename = os.path.join(self.output_dir, f"game_{game_id}.csv")
-        
+
 #         # Definir las columnas del CSV
 #         fieldnames = [
-#             'timestamp', 'agent_index', 'action', 
+#             'timestamp', 'agent_index', 'action',
 #             'pacman_x', 'pacman_y', 'score', 'food_count',
 #             'food_matrix', 'wall_matrix', 'ghost_positions', 'capsules',
 #             'is_win', 'is_lose', 'game_over', 'score_change', 'food_eaten'
 #         ]
-        
+
 #         with open(filename, 'w', newline='') as csvfile:
 #             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 #             writer.writeheader()
-            
+
 #             for step in self.current_game_data:
 #                 # Asegurarse de que todas las columnas estén presentes
 #                 row = {field: step.get(field, '') for field in fieldnames}
 #                 writer.writerow(row)
-        
+
 #         print(f"Datos del juego {game_id} guardados en {filename}")
-        
+
 #         # Reiniciar para el siguiente juego
 #         self.current_game_data = []
-    
+
 #     def save_summary_csv(self):
 #         """Guarda un resumen de todos los juegos en un CSV"""
 #         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 #         filename = os.path.join(self.output_dir, f"games_summary_{timestamp}.csv")
-        
+
 #         # Esta función podría implementarse para crear un resumen
 #         pass
 

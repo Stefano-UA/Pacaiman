@@ -9,18 +9,19 @@ class CSVPlaybackAgent(Agent):
     """
     Un agente que reproduce un juego desde datos guardados en CSV
     """
-    
+
     def __init__(self, csv_file_path):
         super().__init__(index=0)
         self.actions = []
         self.current_step = 0
         self.maps = []  # Guardar los mapas para visualización/depuración
         self.load_actions_from_csv(csv_file_path)
-        random.seed(42)  # Para reproducibilidad
-    
+        if not os.getenv('PACMAN_RANDOM'):
+            random.seed(42)  # Para reproducibilidad
+
     def load_actions_from_csv(self, csv_file_path):
         print(f"Cargando acciones desde: {csv_file_path}")
-        
+
         with open(csv_file_path, 'r') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
@@ -29,15 +30,15 @@ class CSVPlaybackAgent(Agent):
                     # También podemos cargar los mapas si los necesitamos
                     if 'map_matrix' in row:
                         self.maps.append(json.loads(row['map_matrix']))
-        
+
         print(f"Cargadas {len(self.actions)} acciones")
-    
+
     def getAction(self, state):
         """Devuelve la siguiente acción del CSV"""
         if self.current_step < len(self.actions):
             action = self.actions[self.current_step]
             self.current_step += 1
-            
+
             # Asegurarse de que la acción sea válida
             legal_actions = state.getLegalActions()
             if action in legal_actions:
