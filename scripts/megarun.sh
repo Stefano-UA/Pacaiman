@@ -7,6 +7,7 @@ export HERE="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
 n=$1
 shift
 
+export AGENT_DEPTH='5'
 export PACMAN_RANDOM=True
 export ARGS=$*
 
