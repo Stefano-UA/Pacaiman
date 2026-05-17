@@ -25,7 +25,7 @@ run_game() {
 
     local csv="$(grep -o 'pacman_data/[a-zA-Z0-9_]*\.csv' "$tmpfile")"
 
-    if grep -q 'Record: Loss' "$tmpfile"; then
+    if grep -q 'Loss' "$tmpfile"; then
         rm -f "$csv"
         echo "Partida ${n} perdida -> CSV purgado"
     fi
