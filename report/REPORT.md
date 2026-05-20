@@ -1,5 +1,7 @@
 # Reporte
 
+[GitHub Repo](https://github.com/Stefano-UA/Pacaiman)
+
 ## Introducción
 
 ## Parte 1 - Nuevas Heuristicas
