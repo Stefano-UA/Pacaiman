@@ -15,7 +15,3 @@
 ## Conclusiones
 
 ## Comandos del Video
-
-
-## TASK-1
-### Heurísitca 1:

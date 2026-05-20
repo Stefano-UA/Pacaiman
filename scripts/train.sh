@@ -12,4 +12,4 @@ shift
 cp "${HERE}/../pacman_data/${data}/"*.csv "${HERE}/../pacman_data"
 
 cd "${HERE}/.."
-"${HERE}/../.venv/bin/python" net.py -p NeuralAgent ${@}
+"${HERE}/../.venv/bin/python" net.py ${@}
