@@ -13,7 +13,7 @@
 
 import torch
 import numpy as np
-from net import PacmanNet
+from net import PacmanNet, HIDDEN_SIZE
 import os
 from util import manhattanDistance
 from game import Directions
@@ -431,7 +431,7 @@ class NeuralAgent(Agent):
             self.input_size = checkpoint['input_size']
 
             # Crear y cargar el modelo
-            self.model = PacmanNet(self.input_size, 128, 5).to(self.device)
+            self.model = PacmanNet(self.input_size, HIDDEN_SIZE, 5).to(self.device)
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.model.eval()  # Modo evaluación
 

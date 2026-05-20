@@ -18,11 +18,11 @@ if not os.getenv('PACMAN_RANDOM'):
     random.seed(42)
 # Constantes
 INPUT_SIZE = None  # Se determinará en tiempo de ejecución basado en el tamaño del mapa
-HIDDEN_SIZE = 128
+HIDDEN_SIZE = 512
 NUM_ACTIONS = 5  # Stop, North, South, East, West
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 LEARNING_RATE = 0.001
-NUM_EPOCHS = 100
+NUM_EPOCHS = 2000
 MODELS_DIR = "models"
 
 # Mapeo de acciones a índices
