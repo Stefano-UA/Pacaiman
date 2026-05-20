@@ -1,21 +1,19 @@
-# pacman
+# Pacaiman
 
-## Play Pacman
-### Install
+## Tasks
 
-```bash
-git clone https://github.com/AhmedBegggaUA/pacman.git
-cd pacman
-pip install numpy
-pip install matplotlib
-pip install pandas
-pip install torch torchvision torchaudio
-```
-### Run
+- [ ] Task 1 —  Improve the evaluation function with new heuristics
+- [ ] Task 2 —  Train the model with good games
+- [ ] Task 3 —  Implement AlphaBetaNeuralAgent
+- [ ] Task 4 —  Report results in a comparative table
+- [ ] Task 5 —  New layout to test
+- [ ] Task 6 —  Record the video of the best game
+
+## Run
 
 ```bash
-python pacman.py # to play
-python pacman.py -p RandomAgent # to play with random agent
-python pacman.py -p NeuralAgent # to play with neural agent
-python net.py # to train the neural agent
+./scripts/run.sh # to play with keyboard
+./scripts/run.sh -p RandomAgent # to play with random agent
+./scripts/run.sh -p NeuralAgent # to play with neural agent
+./scripts/train.sh # to train the neural agent
 ```
