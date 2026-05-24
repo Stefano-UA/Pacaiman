@@ -8,3 +8,6 @@ LEARNING_RATE = 0.001
 NUM_EPOCHS = 250
 
 Acc: 62.86%
+
+AvgScore: 78.774
+Winrate: 10/1000
