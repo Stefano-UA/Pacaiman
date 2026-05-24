@@ -1,0 +1,10 @@
+Maze: Normal
+Data: Goodwins (115)
+Params:
+
+HIDDEN_SIZE = 1024
+BATCH_SIZE = 128
+LEARNING_RATE = 0.001
+NUM_EPOCHS = 250
+
+Acc: 62.86%
