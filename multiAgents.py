@@ -590,14 +590,14 @@ class NeuralAgent(Agent):
         for action in legal_actions:
             successor = state.generateSuccessor(0, action)
             eval_score = self.evaluationFunction(successor)
-            horror_score = self.getHorrorScore(successor)
+            #horror_score = self.getHorrorScore(successor)
             neural_score = 0
             for a, p in action_probs:
                 if a == action:
                     neural_score = p * 100
                     break
             # Combinar evaluación heurística con la predicción de la red
-            combined_score = (eval_score * 0) + (neural_score * 0) + (horror_score * 2)
+            combined_score = (eval_score) + (neural_score)
 
             # Penalizar STOP a menos que sea la única opción
             if action == Directions.STOP and len(legal_actions) > 1:
@@ -640,6 +640,69 @@ class NeuralAgent(Agent):
                 horror_score += dist * 5000
 
         return horror_score
+
+class ScaredyNeuralAgent(NeuralAgent):
+    """
+    Un agente de Pacman que utiliza una red neuronal para tomar decisiones
+    basado en la evaluación del estado del juego. Este en especifico tiene
+    una funcion de evaluacion que prioriza huir de los fantasmas.
+    """
+    def evaluationFunction(self, state):
+        """
+        Una función de evaluación basada en la red neuronal y en heurísticas adicionales (huir).
+        """
+        if self.model is None:
+            return 0  # Si no hay modelo, devolver 0
+
+        # Convertir a matriz
+        state_matrix = self.state_to_matrix(state)
+
+        # Convertir a tensor
+        state_tensor = torch.FloatTensor(state_matrix).unsqueeze(0).to(self.device)
+
+        # Obtener predicciones
+        with torch.no_grad():
+            output = self.model(state_tensor)
+            probabilities = torch.nn.functional.softmax(output, dim=1).cpu().numpy()[0]
+
+        # Obtener acciones legales
+        legal_actions = state.getLegalActions()
+
+        # Aplicar heurísticas adicionales, similar a betterEvaluationFunction
+        score = state.getScore()
+
+        # Mejorar la evaluación con conocimiento del dominio
+        pacman_pos = state.getPacmanPosition()
+        food = state.getFood().asList()
+        ghost_states = state.getGhostStates()
+
+        # Factor 1: Proximidad a fantasmas
+        for ghost_state in ghost_states:
+            ghost_pos = ghost_state.getPosition()
+            ghost_distance = manhattanDistance(pacman_pos, ghost_pos)
+
+            # Si el fantasma esta asustado lo ignoramos
+            if not ghost_state.scaredTimer > ghost_distance:
+                # Cuanto mas lejos mejor
+                score += ghost_distance * 20
+                # Si esta muy cerca, fatal
+                if ghost_distance <= 3:
+                    # Penalizacion gradual para evitar acercamiento
+                    score -= 200 * (4 - ghost_distance)  # Gran penalización por estar demasiado cerca
+
+        # Factor 2: Distancia a la comida más cercana
+        if food:
+            # Para desempatar
+            min_food_distance = min(manhattanDistance(pacman_pos, food_pos) for food_pos in food)
+            score += (1.0 / (min_food_distance + 1)) * 20
+
+        # Combinar la puntuación de la red con la heurística
+        neural_score = 0
+        for i, action in enumerate(self.idx_to_action.values()):
+            if action in legal_actions:
+                neural_score += probabilities[i] * 15
+
+        return score + neural_score
 
 # Definir una función para crear el agente
 def createNeuralAgent(model_path="models/pacman_model.pth"):

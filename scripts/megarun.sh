@@ -17,7 +17,13 @@ run_game() {
 
     SECONDS=0
 
+    cd "${HERE}/.."
+
     echo "Ejecutando partida ${n}..."
+
+    # Clave porque sino escriben el mismo csv a la vez
+    export PACMANDATA='pacman_data/wk'$n
+    mkdir -p "$PACMANDATA"
 
     local tmpfile="$(mktemp)"
 
@@ -26,8 +32,11 @@ run_game() {
     local csv="$(grep -o 'pacman_data/[a-zA-Z0-9_]*\.csv' "$tmpfile")"
 
     if grep -q 'Loss' "$tmpfile"; then
-        rm -f "$csv"
+        rm -fr "$PACMANDATA"
         echo "Partida ${n} perdida -> CSV purgado"
+    else
+        cp "$PACMANDATA"/game_0.csv "pacman_data/game_${n}.csv" 2>/dev/null
+        echo "Partida ${n} ganada -> CSV copied to pacman_data"
     fi
 
     rm -f "$tmpfile"

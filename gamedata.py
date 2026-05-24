@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 class GameDataCollector:
-    def __init__(self, output_dir="pacman_data", replay_mode=False):
+    def __init__(self, output_dir=os.getenv('PACMANDATA', "pacman_data"), replay_mode=False):
         self.current_game_data = []
         self.output_dir = output_dir
         self.replay_mode = replay_mode
