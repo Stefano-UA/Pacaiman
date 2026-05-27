@@ -554,6 +554,14 @@ class NeuralAgent2(NeuralAgent):
     """
     Versión de NeuralAgnet mejorada -> usa 4 factores heurísitocos:
     2 originales + 2 añadidos
+
+    Ejecución original
+    -------------------
+    -> ./scripts/run.sh -p NeurolAgent
+
+    Ejecución nuevo agente (4 factores heurísitcos)
+    -------------------
+    -> ./scripts/run.sh -p NeurolAgent2
     """
 
     def evaluationFunction(self, state):
