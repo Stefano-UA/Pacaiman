@@ -841,6 +841,114 @@ class NeuralAgent(Agent):
         for i, action in enumerate(self.idx_to_action.values()):
             if action in legal_actions:
                 neural_score += probabilities[i] * 100
+                
+
+        return score + neural_score
+    
+
+    ###########################################################################
+    # Alfonso
+    ###########################################################################
+    
+    # Creamos función para definir el agente 2
+
+class NeuralAgent2(NeuralAgent):
+    """
+    Versión de NeuralAgnet mejorada -> usa 4 factores heurísitocos:
+    2 originales + 2 añadidos
+
+    Ejecución original
+    -------------------
+    -> ./scripts/run.sh -p NeurolAgent
+
+    Ejecución nuevo agente (4 factores heurísitcos)
+    -------------------
+    -> ./scripts/run.sh -p NeurolAgent2
+    """
+
+    def evaluationFunction(self, state):
+        if self.model is None:
+            return 0
+        
+        # Convertir a matriz
+        state_matrix = self.state_to_matrix(state)
+
+        # Convertir a tensor
+        state_tensor = torch.FloatTensor(state_matrix).unsqueeze(0).to(self.device)
+
+        # Obtener predicciones
+        with torch.no_grad():
+            output = self.model(state_tensor)
+            probabilities = torch.nn.functional.softmax(output, dim=1).cpu().numpy()[0]
+
+
+        # Obtener acciones legales
+        legal_actions = state.getLegalActions()
+
+        # Aplicar heurísticas adicionales, similar a betterEvaluationFunction
+        score = state.getScore()
+
+        # Mejorar evaluación con conocimiento del dominio
+        pacman_pos = state.getPacmanPosition()
+        food = state.getFood().asList()
+        ghost_states = state.getGhostStates()
+
+        #-----------------#
+        # Factores (4)
+        #-----------------# 
+
+        # Factor 1: Distancia a la comida más cercana
+        if food:
+            min_food_distance = min(manhattanDistance(pacman_pos, food_pos) for food_pos in food)
+            score += 1.0 / (min_food_distance + 1)
+
+        # Factor 2: Proximidad a fantasmas
+        for ghost_state in ghost_states:
+            ghost_pos = ghost_state.getPosition()
+            ghost_distance = manhattanDistance(pacman_pos, ghost_pos)
+
+            if ghost_state.scaredTimer > 0:
+                # Si el fantasma está asustado, acercarse a él
+                score += 50 / (ghost_distance + 1)
+            else:
+                # Si no está asustado, evitarlo
+                if ghost_distance <= 2:
+                    score -= 200  # Gran penalización por estar demasiado cerca
+
+        # Factor 3: Huida proporcional a los fantasmas
+        """
+        Cuanto más cerca estén los fantasmas, más se penaliza inversamente
+        proporcional a la distancia de cualquier fanstasma sin asustar
+        Si pacman sobrevive más tiempo huyendo de los fantasmas más puntos, 
+        evita situaciones donde se quede encerrado
+        """
+        for ghost_state in ghost_states:
+            if ghost_state.scaredTimer == 0:
+                ghost_posicion = ghost_state.getPosition()
+                ghost_distance = manhattanDistance(pacman_pos, ghost_pos)
+                score -= 150 / (ghost_distance + 0.5)
+
+        # Factor 4: Concentración de comida (cluster)
+        """
+        Penalizamos cuando hay comida dispersa por el mapa. Se calcula como la 
+        distancia media a los 5 cocos más cercanos. Si el valor es alto, hay dispersión
+        luego pacman tiene que recorrer mucho. Si el valor es bajo: cluster -> pacman 
+        puede "limpiar" esa zona y terminar la partida antes. Gracias a este factor
+        pacman puede terminar partidas más rápidamente
+        """
+        if food:
+            distances_to_food = sorted(manhattanDistance(pacman_pos, food_pos) for food_pos in food)
+            cercana = distances_to_food[:5]
+            media_cluster_dist = sum(cercana) / len(cercana)
+            score -= 0.4 * media_cluster_dist
+
+
+        # Combinar la puntuación de la red con la heurística
+        neural_score = 0
+        for i, action in enumerate(self.idx_to_action.values()):
+            if action in legal_actions:
+                neural_score += probabilities[i] * 100
+                
 
         return score + neural_score
 
