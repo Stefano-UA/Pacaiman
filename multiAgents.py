@@ -21,7 +21,7 @@ import random, util
 if not os.getenv('PACMAN_RANDOM'):
     random.seed(42)  # For reproducibility
 from game import Agent
-from pacman import GameState
+from pacman import GameState, Actions
 
 class ReflexAgent(Agent):
     """
@@ -278,57 +278,11 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
 
         return bestAction
 
-class AlphaBetaRnAgent(MultiAgentSearchAgent):
+class AlphaBetaRnAgent(AlphaBetaAgent):
     '''
     Minimax agent with alpha-beta pruning and randomized tie-breaking
     '''
     tolerance = 0.0
-
-    def _alphaBeta(self, agentIndex, depth, gameState, alpha, beta):
-        if gameState.isWin() or gameState.isLose() or depth == self.depth:
-            return self.evaluationFunction(gameState)
-
-        if agentIndex == 0:
-            return self._maxValue(agentIndex, depth, gameState, alpha, beta)
-        else:
-            return self._minValue(agentIndex, depth, gameState, alpha, beta)
-
-    def _maxValue(self, agentIndex, depth, gameState, alpha, beta):
-        v = float('-inf')
-        legalActions = gameState.getLegalActions(agentIndex)
-
-        if not legalActions:
-            return self.evaluationFunction(gameState)
-
-        for action in legalActions:
-            successor = gameState.generateSuccessor(agentIndex, action)
-            v = max(v, self._alphaBeta(1, depth, successor, alpha, beta))
-            if v > beta:
-                return v
-            alpha = max(alpha, v)
-        return v
-
-    def _minValue(self, agentIndex, depth, gameState, alpha, beta):
-        v = float('inf')
-        legalActions = gameState.getLegalActions(agentIndex)
-
-        if not legalActions:
-            return self.evaluationFunction(gameState)
-
-        nextAgent = agentIndex + 1
-        nextDepth = depth
-
-        if nextAgent == gameState.getNumAgents():
-            nextAgent = 0
-            nextDepth = depth + 1
-
-        for action in legalActions:
-            successor = gameState.generateSuccessor(agentIndex, action)
-            v = min(v, self._alphaBeta(nextAgent, nextDepth, successor, alpha, beta))
-            if v < alpha:
-                return v
-            beta = min(beta, v)
-        return v
 
     def getAction(self, gameState):
         '''
@@ -357,6 +311,352 @@ class AlphaBetaRnAgent(MultiAgentSearchAgent):
             alpha = max(alpha, bestScore)
 
         return random.choice(bestActions)
+
+def getMazeDistance(pos1: tuple[float, float], pos2: tuple[float, float], gameState: 'GameState') -> float:
+    '''
+    Calcula la distancia real en el laberinto entre dos puntos usando el algoritmo
+    de búsqueda en anchura (BFS) para sortear las paredes.
+
+    :param pos1: Coordenadas (x, y) del punto de origen.
+    :param pos2: Coordenadas (x, y) del punto de destino.
+    :param gameState: Estado actual de la partida, necesario para extraer la matriz de muros.
+    :return: Distancia mínima en pasos. Devuelve float('inf') si el destino es inalcanzable.
+    '''
+    # Redondeo de coordenadas al centro de la celda más cercana
+    x1, y1 = int(pos1[0] + 0.5), int(pos1[1] + 0.5)
+    x2, y2 = int(pos2[0] + 0.5), int(pos2[1] + 0.5)
+
+    # Retorno temprano si origen y destino coinciden
+    if (x1, y1) == (x2, y2):
+        return 0.0
+
+    # Inicialización de la cola BFS y el conjunto de nodos visitados
+    queue: list[tuple[int, int, int]] = [(x1, y1, 0)]
+    visited: set[tuple[int, int]] = {(x1, y1)}
+    walls = gameState.getWalls()
+
+    # Exploración iterativa nivel por nivel
+    while queue:
+        x, y, dist = queue.pop(0)
+
+        # Condición de éxito: se ha alcanzado la celda destino
+        if (x, y) == (x2, y2):
+            return float(dist)
+
+        # Expansión del nodo hacia las 4 direcciones ortogonales
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            nx, ny = x + dx, y + dy
+
+            # Validación de límites del mapa, ausencia de pared y nodo no explorado
+            if 0 <= nx < walls.width and 0 <= ny < walls.height:
+                if not walls[nx][ny] and (nx, ny) not in visited:
+                    visited.add((nx, ny))
+                    queue.append((nx, ny, dist + 1))
+
+    # Caso de fallo: no existe ningún camino físico que conecte los puntos
+    return float('inf')
+
+class HibridAgent(AlphaBetaAgent):
+    '''
+    Agente basado en dos estados (Pacifico, Supervivencia) dictados por una simple heuristica
+    booleana de riesgo. El modo pacifico esta basado en una serie de heuristicas topologicas para
+    ir comiendose puntos de manera eficiente y el modo supervivencia usa una busqueda Alpha-Beta
+    con una heuristica (funcion de evaluacion) basada en maximizar la supervivencia.
+    '''
+
+    def __init__(self, depth: str = '4') -> None:
+        '''
+        Inicializa el agente híbrido delegando en la clase base y sobrescribiendo la evaluación.
+
+        :param depth: Profundidad de búsqueda para el árbol Minimax.
+        '''
+        super().__init__('scoreEvaluationFunction', depth) # Luego sobrescribimos eval func
+        self.evaluationFunction = self.evaluationFunction_local
+
+    def _init_matrices(self, gameState: 'GameState') -> None:
+        '''
+        Precomputa la topología del laberinto usando BFS para generar matrices de distancias
+        reales (teniendo en cuenta laberinto), identificar intersecciones y calcular la geometría de los nodos.
+
+        :param gameState: Estado actual del juego.
+        '''
+        # Patrón Singleton para evitar recalcular en cada turno
+        if getattr(self, '_initialized', False): return None
+
+        walls = gameState.getWalls()
+        self.width, self.height = walls.width, walls.height
+
+        # Filtra solo las casillas transitables
+        valid_positions: list[tuple[int, int]] = [(x, y) for x in range(self.width) for y in range(self.height) if not walls[x][y]]
+
+        self.distance_matrix: dict[tuple[tuple[int, int], tuple[int, int]], int] = {}
+
+        # BFS desde cada casilla transitable a todas las demás
+        for start_pos in valid_positions:
+            self.distance_matrix[(start_pos, start_pos)] = 0
+            queue: list[tuple[int, int, int]] = [(start_pos[0], start_pos[1], 0)]
+            visited: set[tuple[int, int]] = {start_pos}
+            while queue:
+                cx, cy, dist = queue.pop(0)
+                for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                    nx, ny = cx + dx, cy + dy
+                    if 0 <= nx < self.width and 0 <= ny < self.height and not walls[nx][ny]:
+                        if (nx, ny) not in visited:
+                            visited.add((nx, ny))
+                            self.distance_matrix[(start_pos, (nx, ny))] = dist + 1
+                            queue.append((nx, ny, dist + 1))
+
+        self.intersections: set[tuple[int, int]] = set()
+
+        # Identificación de nodos de decisión (aquellos con >= 3 salidas)
+        for pos in valid_positions:
+            x, y = pos
+            open_neighbors = sum(1 for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]
+                                 if 0 <= x+dx < self.width and 0 <= y+dy < self.height and not walls[x+dx][y+dy])
+            if open_neighbors >= 3: self.intersections.add(pos)
+
+        self.node_geometry: dict[tuple[int, int], tuple[int, int, int]] = {}
+
+        # Calcula la distancia desde cada posición a sus intersecciones más cercanas
+        for pos in valid_positions:
+            queue = [(pos[0], pos[1], 0)]
+            visited = {pos}
+            exits: list[tuple[tuple[int, int], int]] = []
+            while queue:
+                cx, cy, dist = queue.pop(0)
+                if (cx, cy) in self.intersections and (cx, cy) != pos:
+                    exits.append(((cx, cy), dist))
+                    continue
+                for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                    nx, ny = cx + dx, cy + dy
+                    if 0 <= nx < self.width and 0 <= ny < self.height and not walls[nx][ny]:
+                        if (nx, ny) not in visited:
+                            visited.add((nx, ny))
+                            queue.append((nx, ny, dist + 1))
+
+            distances: list[int] = [e[1] for e in exits]
+            if distances:
+                self.node_geometry[pos] = (min(distances), max(distances), sum(distances))
+            else:
+                self.node_geometry[pos] = (0, 0, 0)
+
+        # Initialization guard
+        self._initialized = True
+
+    def _getMazeDistance(self, p1: tuple[float, float], p2: tuple[float, float]) -> float:
+        '''
+        Recupera la distancia real de laberinto precomputada entre dos puntos.
+
+        :param p1: Coordenadas (x, y) del primer punto.
+        :param p2: Coordenadas (x, y) del segundo punto.
+        :return: Distancia en pasos, o float('inf') si es inalcanzable.
+        '''
+        pos1 = (int(p1[0]+0.5), int(p1[1]+0.5))
+        pos2 = (int(p2[0]+0.5), int(p2[1]+0.5))
+        return self.distance_matrix.get((pos1, pos2), float('inf'))
+
+    def _is_ghost_moving_away(self, pacman_pos: tuple[float, float], ghost_state: 'GhostState', walls: 'Grid') -> bool:
+        '''
+        Comprueba si el vector de movimiento de un fantasma incrementa su distancia a Pacman.
+
+        :param pacman_pos: Coordenadas actuales de Pacman.
+        :param ghost_state: Objeto de estado del fantasma a evaluar.
+        :param walls: Matriz de booleanos de las paredes.
+        :return: True si el fantasma se aleja en el siguiente frame, False de lo contrario.
+        '''
+        g_pos = ghost_state.getPosition()
+        g_dir = ghost_state.getDirection()
+
+        if g_dir == 'Stop': return False
+
+        vectors: dict[str, tuple[int, int]] = {'North': (0, 1), 'South': (0, -1), 'East': (1, 0), 'West': (-1, 0)}
+        dx, dy = vectors.get(g_dir, (0, 0))
+        next_x, next_y = int(g_pos[0] + dx), int(g_pos[1] + dy)
+
+        # Previene errores si el motor intenta simular un movimiento contra una pared
+        if walls[next_x][next_y]: return False
+
+        dist_now = self._getMazeDistance(pacman_pos, g_pos)
+        dist_next = self._getMazeDistance(pacman_pos, (next_x, next_y))
+
+        return dist_next > dist_now
+
+    # NUEVO: Calculador de Inercia Estricta (Bloqueo de giro de 180º)
+    def _get_ghost_effective_dist(self, ghost_state: 'GhostState', target_pos: tuple[float, float], walls: 'Grid') -> float:
+        '''
+        Calcula la distancia inercial estricta asumiendo que los fantasmas no pueden
+        girar 180 grados a menos que lleguen a un callejón sin salida.
+
+        :param ghost_state: Estado actual del fantasma.
+        :param target_pos: Coordenadas del objetivo (comida o cápsula).
+        :param walls: Matriz de paredes del laberinto.
+        :return: Distancia obligada en pasos.
+        '''
+        g_pos = ghost_state.getPosition()
+        g_dir = ghost_state.getDirection()
+
+        pos1 = (int(g_pos[0]+0.5), int(g_pos[1]+0.5))
+        target = (int(target_pos[0]+0.5), int(target_pos[1]+0.5))
+
+        base_dist = self._getMazeDistance(pos1, target)
+        if g_dir == 'Stop': return base_dist
+
+        vectors: dict[str, tuple[int, int]] = {'North': (0, 1), 'South': (0, -1), 'East': (1, 0), 'West': (-1, 0)}
+        dx, dy = vectors.get(g_dir, (0, 0))
+        nx, ny = pos1[0] + dx, pos1[1] + dy
+
+        # Si choca de frente, girará, así que la distancia base aplica
+        if nx < 0 or nx >= self.width or ny < 0 or ny >= self.height or walls[nx][ny]:
+            return base_dist
+
+        dist_next = self._getMazeDistance((nx, ny), target)
+        if dist_next <= base_dist:
+            return base_dist # Se acerca de forma natural
+
+        # El fantasma se aleja. Trazamos su ruta física obligatoria sin girar 180º.
+        cx, cy = nx, ny
+        prev_x, prev_y = pos1[0], pos1[1]
+        steps = 1
+
+        while True:
+            open_neighbors: list[tuple[int, int]] = []
+            for dxx, dyy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                test_x, test_y = cx + dxx, cy + dyy
+                if 0 <= test_x < self.width and 0 <= test_y < self.height and not walls[test_x][test_y]:
+                    open_neighbors.append((test_x, test_y))
+
+            # Si hay intersección o callejón ciego, las reglas del juego le permiten girar
+            if len(open_neighbors) >= 3 or len(open_neighbors) <= 1:
+                break
+
+            # Pasillo: Sigue adelante por obligación
+            moved = False
+            for n_pos in open_neighbors:
+                if n_pos != (prev_x, prev_y):
+                    prev_x, prev_y = cx, cy
+                    cx, cy = n_pos
+                    steps += 1
+                    moved = True
+                    break
+            if not moved: break
+
+        return steps + self._getMazeDistance((cx, cy), target)
+
+    def _get_mst_cost(self, pacman_pos: tuple[float, float], food_list: list[tuple[float, float]]) -> float:
+        '''
+        Aproximación Greedy al problema del viajante usando el algoritmo de Prim para el
+        árbol de expansión mínima (MST) sobre los puntos de comida restantes.
+
+        :param pacman_pos: Coordenadas iniciales de Pacman.
+        :param food_list: Lista de coordenadas de la comida activa.
+        :return: Coste total estimado del MST.
+        '''
+        if not food_list: return 0
+        nodes = [pacman_pos] + food_list
+        unvisited = set(nodes)
+        unvisited.remove(pacman_pos)
+        min_dist_to_tree = {node: self._getMazeDistance(pacman_pos, node) for node in unvisited}
+        mst_cost: float = 0
+
+        while unvisited:
+            closest = min(unvisited, key=lambda n: min_dist_to_tree[n])
+            cost = min_dist_to_tree[closest]
+            mst_cost += cost
+            unvisited.remove(closest)
+
+            for v in unvisited:
+                d = self._getMazeDistance(closest, v)
+                if d < min_dist_to_tree[v]:
+                    min_dist_to_tree[v] = d
+
+        return mst_cost
+
+    def _is_state_safe(self, state: 'GameState') -> bool:
+        '''
+        Oráculo que determina el cambio de contexto entre modo Pacífico (Safe)
+        y modo Pánico (Caution) basándose en proximidad e inercia enemiga.
+
+        :param state: Estado a evaluar.
+        :return: True si no hay amenaza inminente, False para activar evasión.
+        '''
+        pacman_pos = state.getPacmanPosition()
+        walls = state.getWalls()
+
+        # Filtra fantasmas ignorando a los asustados que no suponen una amenaza temporal
+        active_ghosts = [g for g in state.getGhostStates() if g.scaredTimer <= self._getMazeDistance(pacman_pos, g.getPosition())]
+
+        if not active_ghosts: return True
+
+        # Pánico incondicional por vecindad inmediata
+        if min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in active_ghosts) <= 3:
+            return False
+
+        # Verifica si los fantasmas se están acercando físicamente
+        threats = [g for g in active_ghosts if not self._is_ghost_moving_away(pacman_pos, g, walls)]
+        if not threats: return True
+
+        # Radio de seguridad ampliado frente a atacantes directos
+        if min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in threats) <= 5:
+            return False
+
+        return True
+
+    def _pacificEvaluationFunction(self, state: 'GameState') -> float:
+        '''
+        Heurística orientada a la recolección óptima. Usada únicamente cuando el Oráculo
+        dictamina que el área está segura. Focalizada en limpiar endpoints y optimizar MST.
+
+        :param state: Nodo hoja generado a evaluar.
+        :return: Puntuación estática del estado.
+        '''
+        # FIX 1: Muerte como infinito negativo
+        if state.isLose(): return float('-inf')
+        if state.isWin(): return float('inf')
+
+        pacman_pos = state.getPacmanPosition()
+        active_ghosts = [g for g in state.getGhostStates() if g.scaredTimer == 0]
+        scared_ghosts = [g for g in state.getGhostStates() if g.scaredTimer > 0]
+
+        if active_ghosts:
+            min_active_dist = min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in active_ghosts)
+            if min_active_dist <= 1:
+                return float('-inf')
+
+        score = state.getScore() * 1000.0
+
+        for sg in scared_ghosts:
+            if self._getMazeDistance(pacman_pos, sg.getPosition()) <= 1:
+                # FIX 1: Chocar con asustado resta, pero salva del '-inf'
+                score -= 100000.0
+
+        # Voronoi parcial (límite 40 nodos) para medir el volumen espacial de escape
+        walls = state.getWalls()
+        safe_territory: int = 0
+        queue = [(pacman_pos[0], pacman_pos[1], 0)]
+        visited = {pacman_pos}
+
+        while queue and safe_territory < 40:
+            cx, cy, p_dist = queue.pop(0)
+            safe_territory += 1
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                nx, ny = cx + dx, cy + dy
+                if 0 <= nx < self.width and 0 <= ny < self.height and not walls[nx][ny]:
+                    if (nx, ny) not in visited:
+                        node_safe = True
+                        for g in active_ghosts:
+                            # Previsión para colisiones adelantadas
+                            if self._getMazeDistance(g.getPosition(), (nx, ny)) <= p_dist + 2:
+                                node_safe = False
+                                break
+                        if node_safe:
+                            visited.add((nx, ny))
+                            queue.append((nx, ny, p_dist + 1))
+
+        # Restricción topológica para evitar entrar voluntariamente en cuellos de botella
+        if safe_territory < 15:
+            score -= 900000.0
+
+        capsules = state.getC
 
 class ExpectimaxAgent(MultiAgentSearchAgent):
     """
