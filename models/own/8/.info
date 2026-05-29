@@ -1,0 +1,13 @@
+Maze: Normal
+Data: Betterwins (1729)
+Params:
+
+HIDDEN_SIZE = 512
+BATCH_SIZE = 512
+LEARNING_RATE = 0.001
+NUM_EPOCHS = 50
+
+Acc: 88.87%
+
+AvgScore: 253.87
+Winrate: 91/1000
