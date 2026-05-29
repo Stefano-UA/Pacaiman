@@ -174,4 +174,4 @@ cython_debug/
 .pypirc
 
 # Pacman data in toplevel data folder
-pacman_data/*.csv
+*.csv
