@@ -22,7 +22,7 @@ HIDDEN_SIZE = 1024
 NUM_ACTIONS = 5  # Stop, North, South, East, West
 BATCH_SIZE = 512
 LEARNING_RATE = 0.001
-NUM_EPOCHS = 2048
+NUM_EPOCHS = 50
 MODELS_DIR = "models"
 
 # Mapeo de acciones a índices
