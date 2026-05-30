@@ -1132,7 +1132,6 @@ class NeuralAgent(Agent):
 
         return score
 
-    @override
     def evaluationFunction(self, state) -> float:
         """
         Una función de evaluación basada en la red neuronal y en heurísticas adicionales.
@@ -1284,65 +1283,74 @@ class NeuralAgent2(NeuralAgent):
         asegurando asi que no se suicida o pierde la oportunidad de ganar.
         """
         if state.isLose(): return float('-inf')
-        if state.isWin(): return float('-inf')
+        if state.isWin(): return float('inf')
 
         return score
-
-    ###########################################################################
-    # Salas
-    ###########################################################################
-
-    def getHorrorScore(self, state):
-        """
-        Calcula un valor basado puramente en el miedo a los fantasmas.
-        A mayor distancia, mayor puntuación.
-        """
-        pacman_pos = state.getPacmanPosition()
-        ghost_states = state.getGhostStates()
-        horror_score = 0
-
-        for ghost_state in ghost_states:
-            # Solo tenemos miedo si el fantasma NO está asustado
-            if ghost_state.scaredTimer == 0:
-                dist = manhattanDistance(pacman_pos, ghost_state.getPosition())
-
-                # 1. Penalización masiva por cercanía inmediata (miedo al contacto)
-                # Si la distancia es 1 o 2, restamos un valor enorme.
-                if dist < 3:
-                    horror_score -= 5000 / (dist + 0.1)
-                    return horror_score
-
-                # 2. Bonificación por distancia (incentivo de huida)
-                # Cada punto de distancia de Manhattan suma agresivamente.
-                horror_score += dist * 5000
-
-        return horror_score
 
 ###########################################################################
 # Stefano
 ###########################################################################
 
-class AlphaBetaNeuralAgent(NeuralAgent, AlphaBetaAgent):
-    ''''''
+class AlphaBetaNeuralAgent(NeuralAgent2, AlphaBetaAgent):
+    '''
+    Agente que combina busqueda Alpha-Beta con predicciones de red neuronal.
+    El peso de la red se modula dinamicamente en funcion de la proximidad enemiga.
+    '''
+    # Peso base de la puntuacion neuronal
+    nweight: float = float(os.getenv('NEURAL_WEIGHT', 0.5))
 
-    # Weight of the neural score
-    nweight: float = float(os.getenv('NEURAL_WEIGHT', 0.9))
+    def __init__(self, model_path: str = 'models/pacman_model.pth') -> None:
+        '''
+        Inicializa el agente hibrido neuronal y enlaza la evaluacion local.
 
-    @override
-    def evaluationFunction(self, state) -> float:
-        """
-        Una función de evaluación basada en la red neuronal y en alphabeta con heurísticas.
-        """
-        return self.traditionalEvaluation(state) *  (1 - type(self).nweight) + self.neuralEvaluation(state) * type(self).nweight
+        :param model_path: Ruta al archivo de pesos del modelo PyTorch.
+        '''
+        super().__init__(model_path)
+        self.evaluationFunction = self.evaluationFunction_local
+
+    def evaluationFunction_local(self, state: 'GameState') -> float:
+        '''
+        Evaluacion combinada que ajusta el peso de la red neuronal mediante
+        interpolacion lineal segun la distancia al fantasma activo mas cercano.
+
+        :param state: Estado de la simulacion a evaluar.
+        :return: Puntuacion combinada (tradicional + neuronal).
+        '''
+        base_weight = type(self).nweight
+        pacman_pos = state.getPacmanPosition()
+        active_ghosts = [g for g in state.getGhostStates() if g.scaredTimer == 0]
+
+        # Peso nulo si no hay amenazas para priorizar la recoleccion pura
+        if not active_ghosts:
+            current_neural_weight = 0.0
+        else:
+            # Calcula distancia real al fantasma mas cercano mediante BFS
+            min_dist = min([getMazeDistance(pacman_pos, g.getPosition(), state) for g in active_ghosts])
+
+            # Modulacion del multiplicador: total a <=6 pasos, nulo a >=12 pasos
+            if min_dist <= 6:
+                factor = 1.0
+            elif min_dist >= 12:
+                factor = 0.0
+            else:
+                # Interpolacion lineal para el rango intermedio (6 a 12 pasos)
+                factor = (12.0 - min_dist) / 6.0
+
+            current_neural_weight = base_weight * factor
+
+        trad_score = self.traditionalEvaluation(state)
+        neur_score = self.neuralEvaluation(state)
+
+        return trad_score * (1.0 - current_neural_weight) + neur_score * current_neural_weight
 
     @override
     def getAction(self, gameState: 'GameState') -> str:
         '''
-        Calcula la mejor acción combinando un prior de política neuronal (Policy Network)
-        en el nodo raíz con una búsqueda adversaria (Alpha-Beta) para evaluar las consecuencias.
+        Calcula la accion optima usando Alpha-Beta. Incluye un salvavidas Greedy
+        para casos donde la busqueda profunda colapsa a infinito negativo.
 
         :param gameState: Estado actual de la partida.
-        :return: String con la acción elegida (ej. 'North', 'Stop').
+        :return: Direccion del movimiento elegido.
         '''
         self.move_count += 1
 
@@ -1352,49 +1360,36 @@ class AlphaBetaNeuralAgent(NeuralAgent, AlphaBetaAgent):
 
         legal_actions = gameState.getLegalActions(0)
 
-        # 1. Policy Prior: Evaluación directa con la red neuronal del estado actual
-        state_matrix = self.state_to_matrix(gameState)
-        state_tensor = torch.FloatTensor(state_matrix).unsqueeze(0).to(self.device)
+        # Fallback Greedy: busca la accion que maximice el score inmediato si Minimax devuelve -inf
+        # Evitando asi quedarse quieto esperando su muerte por pesimismo excesivo
+        best_fallback = legal_actions[0]
+        max_immediate_score = float('-inf')
+        for action in legal_actions:
+            succ = gameState.generateSuccessor(0, action)
+            immediate_score = self.evaluationFunction_local(succ)
+            if immediate_score > max_immediate_score:
+                max_immediate_score = immediate_score
+                best_fallback = action
 
-        with torch.no_grad():
-            output = self.model(state_tensor)
-            probabilities = torch.nn.functional.softmax(output, dim=1).cpu().numpy()[0]
-
-        # Extraer probabilidades solo para acciones legales
-        action_probs: dict[str, float] = {}
-        for idx, prob in enumerate(probabilities):
-            action = self.idx_to_action[idx]
-            if action in legal_actions:
-                action_probs[action] = float(prob)
-
-        best_action = None
+        best_action = best_fallback
         best_score = float('-inf')
         alpha = float('-inf')
         beta = float('inf')
 
-        # 2. Búsqueda Alpha-Beta + Integración del Prior Neuronal
+        # Busqueda adversaria Alpha-Beta estandar
         for action in legal_actions:
             successor = gameState.generateSuccessor(0, action)
-
-            # El valor devuelto ya está ponderado internamente por evaluationFunction en los nodos hoja
             ab_score = self._alphaBeta(1, 0, successor, alpha, beta)
 
-            # Prior de la red para la acción raíz, escalado y ponderado por nweight
-            neural_action_score = (action_probs[action] * 100.0) * type(self).nweight
-
-            # Combinación: Búsqueda (Value) + Instinto (Policy)
-            combined_score = ab_score + neural_action_score
-
-            # Penalización heurística determinista
+            # Penalizacion estatica para evitar bloqueos por inactividad
             if action == 'Stop' and len(legal_actions) > 1:
-                combined_score -= 50.0
+                ab_score -= 50.0
 
-            # Actualización del mejor nodo
-            if combined_score > best_score:
-                best_score = combined_score
+            # Actualiza accion si supera el best_score (preserva fallback si todo es -inf)
+            if ab_score > best_score:
+                best_score = ab_score
                 best_action = action
 
-            # Actualización de Alpha para la poda en la raíz
             alpha = max(alpha, best_score)
 
         return best_action
