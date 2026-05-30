@@ -603,7 +603,7 @@ def readCommand(argv):
 
     # Fix the random seed
     if not os.getenv('PACMAN_RANDOM'):
-        random.seed('42')
+        random.seed(os.getenv('SEED', '42'))
 
     # Choose a layout
     args['layout'] = layout.getLayout(options.layout)
@@ -746,7 +746,7 @@ def runGames(layout, pacman, ghosts, display, numGames, record, numTraining=0, c
     # Fijar semilla consistente
 
     if not os.getenv('PACMAN_RANDOM'):
-        seed = '42'  # o cualquier valor fijo
+        seed = os.getenv('SEED', '42')  # o cualquier valor fijo
         random.seed(seed)
     ###################################################
     for i in range(numGames):

@@ -21,7 +21,7 @@ import util
 import os
 import random
 if not os.getenv('PACMAN_RANDOM'):
-    random.seed(42)  # For reproducibility
+    random.seed(int(os.getenv('SEED', 42)))  # For reproducibility
 
 class GhostAgent(Agent):
     def __init__(self, index):

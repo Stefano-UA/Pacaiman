@@ -11,6 +11,8 @@
 # Student side autograding was added by Brad Miller, Nick Hay, and
 # Pieter Abbeel (pabbeel@cs.berkeley.edu).
 
+from typing import override
+
 import torch
 import numpy as np
 from net import PacmanNet, HIDDEN_SIZE
@@ -19,9 +21,9 @@ from util import manhattanDistance
 from game import Directions
 import random, util
 if not os.getenv('PACMAN_RANDOM'):
-    random.seed(42)  # For reproducibility
+    random.seed(int(os.getenv('SEED', 42)))  # For reproducibility
 from game import Agent
-from pacman import GameState, Actions
+from pacman import GameState
 
 class ReflexAgent(Agent):
     """
@@ -112,7 +114,7 @@ class MultiAgentSearchAgent(Agent):
         self.depth = int(depth)
 
 # <=====================================================================================================================>
-# <=====================================================================================================================>
+# <== Stefano ==========================================================================================================>
 # <=====================================================================================================================>
 
 class MinimaxAgent(MultiAgentSearchAgent):
@@ -208,9 +210,9 @@ class MinimaxAgent(MultiAgentSearchAgent):
         return bestAction
 
 class AlphaBetaAgent(MultiAgentSearchAgent):
-    """
+    '''
     Your minimax agent with alpha-beta pruning (question 3)
-    """
+    '''
     def _alphaBeta(self, agentIndex, depth, gameState, alpha, beta):
         if gameState.isWin() or gameState.isLose() or depth == self.depth:
             return self.evaluationFunction(gameState)
@@ -227,7 +229,13 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
         if not legalActions:
             return self.evaluationFunction(gameState)
 
+        # Move Ordering O(1): Retrasar 'Stop' para evaluar acciones útiles primero
+        if 'Stop' in legalActions:
+            legalActions.remove('Stop')
+            legalActions.append('Stop')
+
         for action in legalActions:
+            # Generación perezosa: solo se clona si no ha habido poda
             successor = gameState.generateSuccessor(agentIndex, action)
             v = max(v, self._alphaBeta(1, depth, successor, alpha, beta))
             if v > beta:
@@ -257,16 +265,22 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
             beta = min(beta, v)
         return v
 
-    def getAction(self, gameState: GameState):
-        """
+    def getAction(self, gameState: 'GameState'):
+        '''
         Returns the minimax action using self.depth and self.evaluationFunction
-        """
+        '''
         bestAction = None
         bestScore = float('-inf')
         alpha = float('-inf')
         beta = float('inf')
 
-        for action in gameState.getLegalActions(0):
+        legalActions = gameState.getLegalActions(0)
+
+        if 'Stop' in legalActions:
+            legalActions.remove('Stop')
+            legalActions.append('Stop')
+
+        for action in legalActions:
             successor = gameState.generateSuccessor(0, action)
             score = self._alphaBeta(1, 0, successor, alpha, beta)
 
@@ -280,8 +294,10 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
 
 class AlphaBetaRnAgent(AlphaBetaAgent):
     '''
-    Minimax agent with alpha-beta pruning and randomized tie-breaking
+    Minimax agent with alpha-beta pruning and randomized selection when there are ties between options.
     '''
+
+    # Tolerance for whats considered a tie
     tolerance = 0.0
 
     def getAction(self, gameState):
@@ -327,8 +343,7 @@ def getMazeDistance(pos1: tuple[float, float], pos2: tuple[float, float], gameSt
     x2, y2 = int(pos2[0] + 0.5), int(pos2[1] + 0.5)
 
     # Retorno temprano si origen y destino coinciden
-    if (x1, y1) == (x2, y2):
-        return 0.0
+    if (x1, y1) == (x2, y2): return 0.0
 
     # Inicialización de la cola BFS y el conjunto de nodos visitados
     queue: list[tuple[int, int, int]] = [(x1, y1, 0)]
@@ -338,22 +353,18 @@ def getMazeDistance(pos1: tuple[float, float], pos2: tuple[float, float], gameSt
     # Exploración iterativa nivel por nivel
     while queue:
         x, y, dist = queue.pop(0)
-
-        # Condición de éxito: se ha alcanzado la celda destino
-        if (x, y) == (x2, y2):
-            return float(dist)
-
+        # Se ha alcanzado la celda destino
+        if (x, y) == (x2, y2): return float(dist)
         # Expansión del nodo hacia las 4 direcciones ortogonales
         for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
             nx, ny = x + dx, y + dy
-
             # Validación de límites del mapa, ausencia de pared y nodo no explorado
             if 0 <= nx < walls.width and 0 <= ny < walls.height:
                 if not walls[nx][ny] and (nx, ny) not in visited:
                     visited.add((nx, ny))
                     queue.append((nx, ny, dist + 1))
 
-    # Caso de fallo: no existe ningún camino físico que conecte los puntos
+    # No existe ningún camino físico que conecte los puntos
     return float('inf')
 
 class HibridAgent(AlphaBetaAgent):
@@ -363,7 +374,6 @@ class HibridAgent(AlphaBetaAgent):
     ir comiendose puntos de manera eficiente y el modo supervivencia usa una busqueda Alpha-Beta
     con una heuristica (funcion de evaluacion) basada en maximizar la supervivencia.
     '''
-
     def __init__(self, depth: str = '4') -> None:
         '''
         Inicializa el agente híbrido delegando en la clase base y sobrescribiendo la evaluación.
@@ -376,7 +386,7 @@ class HibridAgent(AlphaBetaAgent):
     def _init_matrices(self, gameState: 'GameState') -> None:
         '''
         Precomputa la topología del laberinto usando BFS para generar matrices de distancias
-        reales (teniendo en cuenta laberinto), identificar intersecciones y calcular la geometría de los nodos.
+        reales (teniendo en cuenta paredes), identificar intersecciones y calcular la geometría de los nodos.
 
         :param gameState: Estado actual del juego.
         '''
@@ -440,6 +450,43 @@ class HibridAgent(AlphaBetaAgent):
             else:
                 self.node_geometry[pos] = (0, 0, 0)
 
+        # Precomputación O(1) de pasillos dirigidos (Inercia de fantasmas)
+        # Diccionario: (origen, destino_inmediato) -> (interseccion_final, casilla_previa_a_final, pasos, casillas_del_pasillo)
+        self.directed_paths: dict[tuple[tuple[int, int], tuple[int, int]], tuple[tuple[int, int], tuple[int, int], int, dict[tuple[int, int], int]]] = {}
+
+        for p in valid_positions:
+            neighbors: list[tuple[int, int]] = []
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                nx, ny = p[0] + dx, p[1] + dy
+                if 0 <= nx < self.width and 0 <= ny < self.height and not walls[nx][ny]:
+                    neighbors.append((nx, ny))
+
+            # Para cada posible procedencia, precalculamos hacia dónde nos obliga a ir el pasillo
+            for prev_pos in neighbors:
+                cx, cy = p
+                px, py = prev_pos
+                steps: int = 1
+                path_dict: dict[tuple[int, int], int] = {(cx, cy): 0}
+
+                while True:
+                    c_neighbors: list[tuple[int, int]] = []
+                    for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                        nnx, nny = cx + dx, cy + dy
+                        if 0 <= nnx < self.width and 0 <= nny < self.height and not walls[nnx][nny]:
+                            c_neighbors.append((nnx, nny))
+
+                    # Si llegamos a una intersección o callejón, guardamos la ruta y paramos
+                    if len(c_neighbors) >= 3 or len(c_neighbors) <= 1:
+                        self.directed_paths[(prev_pos, p)] = ((cx, cy), (px, py), steps, path_dict)
+                        break
+
+                    # Si es un pasillo, avanzamos forzosamente hacia la única opción válida
+                    next_pos = c_neighbors[0] if c_neighbors[0] != (px, py) else c_neighbors[1]
+                    px, py = cx, cy
+                    cx, cy = next_pos
+                    path_dict[(cx, cy)] = steps
+                    steps += 1
+
         # Initialization guard
         self._initialized = True
 
@@ -481,66 +528,76 @@ class HibridAgent(AlphaBetaAgent):
 
         return dist_next > dist_now
 
-    # NUEVO: Calculador de Inercia Estricta (Bloqueo de giro de 180º)
     def _get_ghost_effective_dist(self, ghost_state: 'GhostState', target_pos: tuple[float, float], walls: 'Grid') -> float:
         '''
         Calcula la distancia inercial estricta asumiendo que los fantasmas no pueden
         girar 180 grados a menos que lleguen a un callejón sin salida.
+        Utiliza precomputación O(1) para resolver intersecciones y pasillos al instante.
 
         :param ghost_state: Estado actual del fantasma.
-        :param target_pos: Coordenadas del objetivo (comida o cápsula).
+        :param target_pos: Coordenadas del objetivo.
         :param walls: Matriz de paredes del laberinto.
-        :return: Distancia obligada en pasos.
+        :return: Una distancia mínima obligada en pasos reales.
         '''
         g_pos = ghost_state.getPosition()
         g_dir = ghost_state.getDirection()
 
-        pos1 = (int(g_pos[0]+0.5), int(g_pos[1]+0.5))
-        target = (int(target_pos[0]+0.5), int(target_pos[1]+0.5))
+        pos = (int(g_pos[0] + 0.5), int(g_pos[1] + 0.5))
+        target = (int(target_pos[0] + 0.5), int(target_pos[1] + 0.5))
 
-        base_dist = self._getMazeDistance(pos1, target)
+        base_dist = self._getMazeDistance(pos, target)
         if g_dir == 'Stop': return base_dist
 
         vectors: dict[str, tuple[int, int]] = {'North': (0, 1), 'South': (0, -1), 'East': (1, 0), 'West': (-1, 0)}
         dx, dy = vectors.get(g_dir, (0, 0))
-        nx, ny = pos1[0] + dx, pos1[1] + dy
+        nx, ny = pos[0] + dx, pos[1] + dy
 
-        # Si choca de frente, girará, así que la distancia base aplica
-        if nx < 0 or nx >= self.width or ny < 0 or ny >= self.height or walls[nx][ny]:
+        if (nx < 0) or (nx >= self.width) or (ny < 0) or (ny >= self.height) or walls[nx][ny]:
             return base_dist
 
         dist_next = self._getMazeDistance((nx, ny), target)
         if dist_next <= base_dist:
-            return base_dist # Se acerca de forma natural
+            return base_dist
 
-        # El fantasma se aleja. Trazamos su ruta física obligatoria sin girar 180º.
-        cx, cy = nx, ny
-        prev_x, prev_y = pos1[0], pos1[1]
-        steps = 1
+        # ---------------- RUTAS PRECOMPUTADAS O(1) ----------------
 
-        while True:
-            open_neighbors: list[tuple[int, int]] = []
-            for dxx, dyy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-                test_x, test_y = cx + dxx, cy + dyy
-                if 0 <= test_x < self.width and 0 <= test_y < self.height and not walls[test_x][test_y]:
-                    open_neighbors.append((test_x, test_y))
+        # 1. Recuperamos la ruta del pasillo actual en el que nos acabamos de meter
+        end_pos, prev_of_end, steps_to_end, path_dict = self.directed_paths[(pos, (nx, ny))]
 
-            # Si hay intersección o callejón ciego, las reglas del juego le permiten girar
-            if len(open_neighbors) >= 3 or len(open_neighbors) <= 1:
-                break
+        # Si en nuestro camino forzado pisamos el objetivo, fin.
+        if target in path_dict:
+            return float(1 + path_dict[target])
 
-            # Pasillo: Sigue adelante por obligación
-            moved = False
-            for n_pos in open_neighbors:
-                if n_pos != (prev_x, prev_y):
-                    prev_x, prev_y = cx, cy
-                    cx, cy = n_pos
-                    steps += 1
-                    moved = True
-                    break
-            if not moved: break
+        # Llegamos a la primera intersección (o callejón). Extraemos sus salidas.
+        open_neighbors: list[tuple[int, int]] = []
+        for dxx, dyy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            tx, ty = end_pos[0] + dxx, end_pos[1] + dyy
+            if 0 <= tx < self.width and 0 <= ty < self.height and not walls[tx][ty]:
+                open_neighbors.append((tx, ty))
 
-        return steps + self._getMazeDistance((cx, cy), target)
+        # Si es un callejón sin salida: la inercia nos obliga a dar media vuelta
+        if len(open_neighbors) <= 1:
+            return float(steps_to_end + self._getMazeDistance(end_pos, target))
+
+        # 2. Si es una intersección, evaluamos las ramas obligando al BFS a entrar en ellas
+        valid_next_steps = [n for n in open_neighbors if n != prev_of_end]
+        min_branch_dist = float('inf')
+
+        for next_step in valid_next_steps:
+            # Consultamos la caché O(1) para ver a dónde nos lleva esta rama en concreto
+            b_end_pos, b_prev_of_end, b_steps, b_path_dict = self.directed_paths[(end_pos, next_step)]
+
+            if target in b_path_dict:
+                # Si el objetivo está dentro de esta rama
+                dist_via_this_branch = float(1 + b_path_dict[target])
+            else:
+                # Si no, sumamos el coste de recorrer la rama + la distancia desde su final
+                dist_via_this_branch = float(b_steps + self._getMazeDistance(b_end_pos, target))
+
+            if dist_via_this_branch < min_branch_dist:
+                min_branch_dist = dist_via_this_branch
+
+        return float(steps_to_end + min_branch_dist)
 
     def _get_mst_cost(self, pacman_pos: tuple[float, float], food_list: list[tuple[float, float]]) -> float:
         '''
@@ -573,8 +630,8 @@ class HibridAgent(AlphaBetaAgent):
 
     def _is_state_safe(self, state: 'GameState') -> bool:
         '''
-        Oráculo que determina el cambio de contexto entre modo Pacífico (Safe)
-        y modo Pánico (Caution) basándose en proximidad e inercia enemiga.
+        Oráculo que determina el cambio de contexto entre
+        modo Pacífico y modo Pánico basándose en proximidad e inercia enemiga.
 
         :param state: Estado a evaluar.
         :return: True si no hay amenaza inminente, False para activar evasión.
@@ -587,29 +644,27 @@ class HibridAgent(AlphaBetaAgent):
 
         if not active_ghosts: return True
 
-        # Pánico incondicional por vecindad inmediata
-        if min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in active_ghosts) <= 3:
-            return False
+        # Pánico incondicional por vecindad inmediata  # _get_ghost_effective_dist
+        if min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in active_ghosts) <= 3: return False
 
         # Verifica si los fantasmas se están acercando físicamente
         threats = [g for g in active_ghosts if not self._is_ghost_moving_away(pacman_pos, g, walls)]
         if not threats: return True
 
         # Radio de seguridad ampliado frente a atacantes directos
-        if min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in threats) <= 5:
-            return False
+        if min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in threats) <= 5: return False
 
         return True
 
     def _pacificEvaluationFunction(self, state: 'GameState') -> float:
         '''
-        Heurística orientada a la recolección óptima. Usada únicamente cuando el Oráculo
+        Heurística orientada a la recolección óptima. Usada únicamente cuando el oráculo
         dictamina que el área está segura. Focalizada en limpiar endpoints y optimizar MST.
 
         :param state: Nodo hoja generado a evaluar.
         :return: Puntuación estática del estado.
         '''
-        # FIX 1: Muerte como infinito negativo
+        # Estados extremos
         if state.isLose(): return float('-inf')
         if state.isWin(): return float('inf')
 
@@ -626,7 +681,7 @@ class HibridAgent(AlphaBetaAgent):
 
         for sg in scared_ghosts:
             if self._getMazeDistance(pacman_pos, sg.getPosition()) <= 1:
-                # FIX 1: Chocar con asustado resta, pero salva del '-inf'
+                # Chocar con asustado resta, pero salva del '-inf'
                 score -= 100000.0
 
         # Voronoi parcial (límite 40 nodos) para medir el volumen espacial de escape
@@ -656,36 +711,205 @@ class HibridAgent(AlphaBetaAgent):
         if safe_territory < 15:
             score -= 900000.0
 
-        capsules = state.getC
+        capsules = state.getCapsules()
+        score += len(capsules) * 5000.0
 
-class ExpectimaxAgent(MultiAgentSearchAgent):
-    """
-      Your expectimax agent (question 4)
-    """
+        food_list = state.getFood().asList()
+        if food_list:
+            min_food_dist = min(self._getMazeDistance(pacman_pos, f) for f in food_list)
+            score += 200.0 / (min_food_dist + 0.1)
 
-    def getAction(self, gameState: GameState):
-        """
-        Returns the expectimax action using self.depth and self.evaluationFunction
+            # Gravedad hacia nodos hoja (esquinas de laberinto) para evitar dejarlos para el final
+            endpoints: int = 0
+            for f in food_list:
+                neighbors = sum(1 for other in food_list if f != other and self._getMazeDistance(f, other) <= 2)
+                if neighbors == 0:
+                    endpoints += 3
+                elif neighbors == 1:
+                    endpoints += 1
 
-        All ghosts should be modeled as choosing uniformly at random from their
-        legal moves.
-        """
-        "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+            score -= endpoints * 2000.0
 
-def betterEvaluationFunction(currentGameState: GameState):
-    """
-    Your extreme ghost-hunting, pellet-nabbing, food-gobbling, unstoppable
-    evaluation function (question 5).
+            mst_cost = self._get_mst_cost(pacman_pos, food_list)
+            score -= mst_cost * 50.0
 
-    DESCRIPTION: <write something here so we know what you did>
-    """
-    "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+        return score
 
-# Abbreviation
-better = betterEvaluationFunction
+    def evaluationFunction_local(self, state: 'GameState') -> float:
+        '''
+        Heurística de supervivencia estricta, invocada por el árbol Minimax cuando
+        el agente detecta una amenaza directa.
 
+        :param state: Nodo del árbol de búsqueda.
+        :return: Evaluación flotante orientada a alejar a Pacman del peligro.
+        '''
+        # Estados extremos
+        if state.isLose(): return float('-inf')
+        if state.isWin(): return float('inf')
+
+        pacman_pos = state.getPacmanPosition()
+        active_ghosts = [g for g in state.getGhostStates() if g.scaredTimer == 0]
+        walls = state.getWalls()
+
+        if not active_ghosts:
+            return 500000.0 + state.getScore() * 10.0
+
+        # Función inverso-cuadrática para forzar una repulsión explosiva al acercarse a fantasmas
+        min_g_dist = min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in active_ghosts)
+        score = -500.0 / (min_g_dist ** 2 + 0.1)
+        score += state.getScore() * 500.0
+
+        safe_territory: int = 0
+        queue = [(pacman_pos[0], pacman_pos[1], 0)]
+        visited = {pacman_pos}
+
+        while queue and safe_territory < 40:
+            cx, cy, p_dist = queue.pop(0)
+            safe_territory += 1
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                nx, ny = cx + dx, cy + dy
+                if 0 <= nx < self.width and 0 <= ny < self.height and not walls[nx][ny]:
+                    if (nx, ny) not in visited:
+                        node_safe = True
+                        for g in active_ghosts:
+                            if self._getMazeDistance(g.getPosition(), (nx, ny)) <= p_dist + 1:
+                                node_safe = False
+                                break
+                        if node_safe:
+                            visited.add((nx, ny))
+                            queue.append((nx, ny, p_dist + 1))
+
+        is_trapped = (safe_territory < 15)
+
+        if is_trapped:
+            score -= 900000.0
+            score += min_g_dist * 50.0
+        else:
+            score += safe_territory * 2000.0
+
+        food_list = state.getFood().asList()
+        if food_list:
+            min_food_dist = min(self._getMazeDistance(pacman_pos, f) for f in food_list)
+            score -= min_food_dist * 10.0
+
+        capsules = state.getCapsules()
+        override = False
+
+        # Midgame Rush: Ignora penalizaciones si la captura de la cápsula es matemáticamente segura
+        if capsules:
+            closest_cap_dist = min([self._getMazeDistance(pacman_pos, c) for c in capsules])
+            closest_ghost_to_cap = min([self._getMazeDistance(g.getPosition(), c) for c in capsules for g in active_ghosts])
+
+            if closest_cap_dist < closest_ghost_to_cap:
+                override = True
+                score += 100000.0 / (closest_cap_dist + 1)
+                if is_trapped:
+                    score += 900000.0
+
+        # Endgame Rush Seguro (Simulación Greedy con Inercia)
+        # Calcula el coste de recolección temporal asumiendo intercepción óptima
+        if not override and food_list and len(food_list) <= 10:
+            curr_pos = pacman_pos
+            time_elapsed: int = 0
+            safe_path = True
+            unvisited = set(food_list)
+
+            while unvisited:
+                next_food = min(unvisited, key=lambda f: self._getMazeDistance(curr_pos, f))
+                dist = self._getMazeDistance(curr_pos, next_food)
+                time_elapsed += int(dist)
+                curr_pos = next_food
+
+                for g in active_ghosts:
+                    # Aplicamos la inercia real para saber si el fantasma nos intercepta en este salto
+                    g_eff_dist = self._get_ghost_effective_dist(g, next_food, walls)
+                    if g_eff_dist <= time_elapsed + 1:
+                        safe_path = False
+                        break
+                if not safe_path: break
+                unvisited.remove(next_food)
+
+            if safe_path:
+                override = True
+                mst_cost = self._get_mst_cost(pacman_pos, food_list)
+                score += 9999999.0 / (mst_cost + 1)
+                if is_trapped:
+                    score += 900000.0
+
+        # Castigo sistemático para evitar que se asiente en pasillos vulnerables
+        if not override and not is_trapped and min_g_dist > 3:
+            nearest, farthest, length = self.node_geometry.get(pacman_pos, (0, 0, 0))
+            score -= length * 200.0
+            score -= nearest * 50.0
+
+        return score
+
+    def getAction(self, gameState: 'GameState') -> str:
+        '''
+        Controlador principal del agente. Elige ejecutar búsqueda Minimax o
+        comportamiento codicioso basado en el Oráculo.
+
+        :param gameState: Estado físico de la simulación.
+        :return: Representación en string de la acción elegida (ej. 'North', 'Stop').
+        '''
+        self._init_matrices(gameState)
+        legal_actions = gameState.getLegalActions(0)
+
+        # FIX 3: Fallback Inteligente (Elegir la acción que retrasa la muerte)
+        # Actúa como un tie-breaker de seguridad si todas las ramas devuelven -inf
+        best_fallback = 'Stop'
+        max_dist_to_death: float = -1
+
+        for a in legal_actions:
+            succ = gameState.generateSuccessor(0, a)
+            p_pos = succ.getPacmanPosition()
+            active_ghosts = [g for g in succ.getGhostStates() if g.scaredTimer == 0]
+            if not active_ghosts:
+                best_fallback = a
+                break
+            min_dist = min([self._getMazeDistance(p_pos, g.getPosition()) for g in active_ghosts])
+            if min_dist > max_dist_to_death:
+                max_dist_to_death = min_dist
+                best_fallback = a
+
+        fallback_action = best_fallback
+
+        if self._is_state_safe(gameState):
+            best_score = float('-inf')
+            best_action = fallback_action
+
+            # Búsqueda Greedy a profundidad 1 (sin proyectar movimientos del enemigo)
+            for a in legal_actions:
+                succ = gameState.generateSuccessor(0, a)
+                score = self._pacificEvaluationFunction(succ)
+
+                # Penalización heurística para promover movimiento constante
+                if a == 'Stop': score -= 15.0
+
+                if score > best_score:
+                    best_score = score
+                    best_action = a
+
+            return best_action
+        else:
+            best_score = float('-inf')
+            best_action = fallback_action
+            alpha, beta = float('-inf'), float('inf')
+
+            # Llamada raíz del algoritmo Alpha-Beta Pruning
+            for a in legal_actions:
+                succ = gameState.generateSuccessor(0, a)
+                score = self._alphaBeta(1, 0, succ, alpha, beta)
+
+                if a == 'Stop': score -= 15.0
+
+                if score > best_score:
+                    best_score = score
+                    best_action = a
+
+                alpha = max(alpha, best_score)
+
+            return best_action
 
 ###########################################################################
 # Ahmed
@@ -789,27 +1013,10 @@ class NeuralAgent(Agent):
 
         return numeric_map
 
-    def evaluationFunction(self, state):
-        """
-        Una función de evaluación basada en la red neuronal y en heurísticas adicionales.
-        """
-        if self.model is None:
-            return 0  # Si no hay modelo, devolver 0
-
-        # Convertir a matriz
-        state_matrix = self.state_to_matrix(state)
-
-        # Convertir a tensor
-        state_tensor = torch.FloatTensor(state_matrix).unsqueeze(0).to(self.device)
-
-        # Obtener predicciones
-        with torch.no_grad():
-            output = self.model(state_tensor)
-            probabilities = torch.nn.functional.softmax(output, dim=1).cpu().numpy()[0]
-
-        # Obtener acciones legales
-        legal_actions = state.getLegalActions()
-
+    def traditionalEvaluation(self, state) -> float:
+        '''
+        Devuelve la parte del score de las heuristicas
+        '''
         # Aplicar heurísticas adicionales, similar a betterEvaluationFunction
         score = state.getScore()
 
@@ -836,40 +1043,16 @@ class NeuralAgent(Agent):
                 if ghost_distance <= 2:
                     score -= 200  # Gran penalización por estar demasiado cerca
 
-        # Combinar la puntuación de la red con la heurística
-        neural_score = 0
-        for i, action in enumerate(self.idx_to_action.values()):
-            if action in legal_actions:
-                neural_score += probabilities[i] * 100
-                
+        return score
 
-        return score + neural_score
-    
+    def neuralEvaluation(self, state) -> float:
+        '''
+        Devuelve la parte del score de la red neuronal.
 
-    ###########################################################################
-    # Alfonso
-    ###########################################################################
-    
-    # Creamos función para definir el agente 2
+        Se usa para tener en cuenta, segun la red neuronal, que tan buenas son las posibles acciones del estado actual.
+        '''
+        if self.model is None: return 0
 
-class NeuralAgent2(NeuralAgent):
-    """
-    Versión de NeuralAgnet mejorada -> usa 4 factores heurísitocos:
-    2 originales + 2 añadidos
-
-    Ejecución original
-    -------------------
-    -> ./scripts/run.sh -p NeurolAgent
-
-    Ejecución nuevo agente (4 factores heurísitcos)
-    -------------------
-    -> ./scripts/run.sh -p NeurolAgent2
-    """
-
-    def evaluationFunction(self, state):
-        if self.model is None:
-            return 0
-        
         # Convertir a matriz
         state_matrix = self.state_to_matrix(state)
 
@@ -881,77 +1064,33 @@ class NeuralAgent2(NeuralAgent):
             output = self.model(state_tensor)
             probabilities = torch.nn.functional.softmax(output, dim=1).cpu().numpy()[0]
 
-
         # Obtener acciones legales
         legal_actions = state.getLegalActions()
 
-        # Aplicar heurísticas adicionales, similar a betterEvaluationFunction
-        score = state.getScore()
+        '''
+        Al sumar las probabilidades softmax de todas las acciones legales (cuya suma siempre tiende a 1.0),
+        solo estamos inyectando un sesgo constante de aprox 100 puntos a cualquier estado futuro, anulando por completo
+        caulquier diferenciacion entre estados. Por eso este codigo lo quitamos.
+        '''
+        #score = 0
+        #for i, action in enumerate(self.idx_to_action.values()):
+        #    if action in legal_actions:
+        #        score += probabilities[i] * 100
 
-        # Mejorar evaluación con conocimiento del dominio
-        pacman_pos = state.getPacmanPosition()
-        food = state.getFood().asList()
-        ghost_states = state.getGhostStates()
+        # Combinar la puntuación heurística con la confianza de la red
+        legal_probs = [probabilities[i] for i, action in enumerate(self.idx_to_action.values()) if action in legal_actions]
+        score = max(legal_probs) * 100.0 if legal_probs else 0.0
 
-        #-----------------#
-        # Factores (4)
-        #-----------------# 
+        return score
 
-        # Factor 1: Distancia a la comida más cercana
-        if food:
-            min_food_distance = min(manhattanDistance(pacman_pos, food_pos) for food_pos in food)
-            score += 1.0 / (min_food_distance + 1)
-
-        # Factor 2: Proximidad a fantasmas
-        for ghost_state in ghost_states:
-            ghost_pos = ghost_state.getPosition()
-            ghost_distance = manhattanDistance(pacman_pos, ghost_pos)
-
-            if ghost_state.scaredTimer > 0:
-                # Si el fantasma está asustado, acercarse a él
-                score += 50 / (ghost_distance + 1)
-            else:
-                # Si no está asustado, evitarlo
-                if ghost_distance <= 2:
-                    score -= 200  # Gran penalización por estar demasiado cerca
-
-        # Factor 3: Huida proporcional a los fantasmas
+    @override
+    def evaluationFunction(self, state) -> float:
         """
-        Cuanto más cerca estén los fantasmas, más se penaliza inversamente
-        proporcional a la distancia de cualquier fanstasma sin asustar
-        Si pacman sobrevive más tiempo huyendo de los fantasmas más puntos, 
-        evita situaciones donde se quede encerrado
+        Una función de evaluación basada en la red neuronal y en heurísticas adicionales.
         """
-        for ghost_state in ghost_states:
-            if ghost_state.scaredTimer == 0:
-                ghost_posicion = ghost_state.getPosition()
-                ghost_distance = manhattanDistance(pacman_pos, ghost_pos)
-                score -= 150 / (ghost_distance + 0.5)
+        return self.traditionalEvaluation(state) + self.neuralEvaluation(state)
 
-        # Factor 4: Concentración de comida (cluster)
-        """
-        Penalizamos cuando hay comida dispersa por el mapa. Se calcula como la 
-        distancia media a los 5 cocos más cercanos. Si el valor es alto, hay dispersión
-        luego pacman tiene que recorrer mucho. Si el valor es bajo: cluster -> pacman 
-        puede "limpiar" esa zona y terminar la partida antes. Gracias a este factor
-        pacman puede terminar partidas más rápidamente
-        """
-        if food:
-            distances_to_food = sorted(manhattanDistance(pacman_pos, food_pos) for food_pos in food)
-            cercana = distances_to_food[:5]
-            media_cluster_dist = sum(cercana) / len(cercana)
-            score -= 0.4 * media_cluster_dist
-
-
-        # Combinar la puntuación de la red con la heurística
-        neural_score = 0
-        for i, action in enumerate(self.idx_to_action.values()):
-            if action in legal_actions:
-                neural_score += probabilities[i] * 100
-                
-
-        return score + neural_score
-
+    @override
     def getAction(self, state):
         """
         Devuelve la mejor acción basada en la evaluación de la red neuronal
@@ -959,12 +1098,10 @@ class NeuralAgent2(NeuralAgent):
         """
         self.move_count += 1
 
-        # Si no hay modelo, hacer un movimiento aleatorio
+        # Si no hay modelo, salir
         if self.model is None:
             print("ERROR: Modelo no cargado. Haciendo movimiento aleatorio.")
             exit()
-            legal_actions = state.getLegalActions()
-            return random.choice(legal_actions)
 
         # Obtener acciones legales
         legal_actions = state.getLegalActions()
@@ -988,26 +1125,20 @@ class NeuralAgent2(NeuralAgent):
         action_probs.sort(key=lambda x: x[1], reverse=True)
 
         # Exploración: con una probabilidad decreciente, elegir aleatoriamente
-        exploration_rate = 0.2 * (0.99 ** self.move_count)  # Disminuye con el tiempo
-        if random.random() < exploration_rate:
-            # Excluir STOP si es posible
-            if len(legal_actions) > 1 and Directions.STOP in legal_actions:
-                legal_actions.remove(Directions.STOP)
-            return random.choice(legal_actions)
+        # REMOVED ya que hace que pacman se suicide con una probabilidad
 
         # Evaluación alternativa: generar sucesores y evaluar cada uno
         successors = []
         for action in legal_actions:
             successor = state.generateSuccessor(0, action)
             eval_score = self.evaluationFunction(successor)
-            #horror_score = self.getHorrorScore(successor)
             neural_score = 0
             for a, p in action_probs:
                 if a == action:
                     neural_score = p * 100
                     break
             # Combinar evaluación heurística con la predicción de la red
-            combined_score = (eval_score) + (neural_score)
+            combined_score = eval_score + neural_score
 
             # Penalizar STOP a menos que sea la única opción
             if action == Directions.STOP and len(legal_actions) > 1:
@@ -1020,6 +1151,93 @@ class NeuralAgent2(NeuralAgent):
 
         # Devolver la mejor acción
         return successors[0][0]
+
+###########################################################################
+# Alfonso
+###########################################################################
+
+class NeuralAgent2(NeuralAgent):
+    """
+    Versión de NeuralAgnet mejorada -> Usa 4 factores heurísiticos:
+    2 originales + 2 añadidos
+
+    Ejecución original
+    -------------------
+    -> ./scripts/run.sh -p NeurolAgent
+
+    Ejecución nuevo agente (4 factores heurísitcos)
+    -------------------
+    -> ./scripts/run.sh -p NeurolAgent2
+    """
+    @override
+    def traditionalEvaluation(self, state):
+        # Aplicar heurísticas adicionales, similar a betterEvaluationFunction
+        score = state.getScore()
+
+        # Mejorar evaluación con conocimiento del dominio
+        pacman_pos = state.getPacmanPosition()
+        food = state.getFood().asList()
+        ghost_states = state.getGhostStates()
+
+        #-----------------#
+        # Factores (4)
+        #-----------------#
+
+        # Factor 1: Distancia a la comida más cercana
+        if food:
+            min_food_distance = min(manhattanDistance(pacman_pos, food_pos) for food_pos in food)
+            score += 1.0 / (min_food_distance + 1)
+
+        # Factor 2: Proximidad a fantasmas
+        for ghost_state in ghost_states:
+            ghost_pos = ghost_state.getPosition()
+            ghost_distance = manhattanDistance(pacman_pos, ghost_pos)
+
+            if ghost_state.scaredTimer > 0:
+                # Si el fantasma está asustado, acercarse a él
+                score += 50 / (ghost_distance + 1)
+            else:
+                # Si no está asustado, evitarlo
+                if ghost_distance <= 2:
+                    score -= 200  # Gran penalización por estar demasiado cerca
+
+        # Factor 3: Huida proporcional a los fantasmas
+        """
+        Cuanto más cerca estén los fantasmas, más se penaliza inversamente
+        proporcional a la distancia de cualquier fanstasma sin asustar
+        Si pacman sobrevive más tiempo huyendo de los fantasmas más puntos,
+        tiende a evitar situaciones donde se quede encerrado
+        """
+        for ghost_state in ghost_states:
+            if ghost_state.scaredTimer == 0:
+                ghost_posicion = ghost_state.getPosition()
+                ghost_distance = manhattanDistance(pacman_pos, ghost_pos)
+                score -= 150 / (ghost_distance + 0.5)
+
+        # Factor 4: Concentración de comida (cluster)
+        """
+        Penalizamos cuando hay comida dispersa por el mapa. Se calcula como la
+        distancia media a los 5 cocos más cercanos. Si el valor es alto, hay dispersión
+        luego pacman tiene que recorrer mucho. Si el valor es bajo: cluster -> pacman
+        puede "limpiar" esa zona y terminar la partida antes. Gracias a este factor
+        pacman puede terminar partidas más rápidamente
+        """
+        if food:
+            distances_to_food = sorted(manhattanDistance(pacman_pos, food_pos) for food_pos in food)
+            cercana = distances_to_food[:5]
+            media_cluster_dist = sum(cercana) / len(cercana)
+            score -= 0.4 * media_cluster_dist
+
+        # Factor 5: Casos Limite
+        """
+        Simplemente le otorgamos valores infinitos o infinitos negativos
+        a situaciones de victoria segura o de derrota segura respectivamente,
+        asegurando asi que no se suicida o pierde la oportunidad de ganar.
+        """
+        if state.isLose(): return float('-inf')
+        if state.isWin(): return float('-inf')
+
+        return score
 
     ###########################################################################
     # Salas
@@ -1051,68 +1269,86 @@ class NeuralAgent2(NeuralAgent):
 
         return horror_score
 
-class ScaredyNeuralAgent(NeuralAgent):
-    """
-    Un agente de Pacman que utiliza una red neuronal para tomar decisiones
-    basado en la evaluación del estado del juego. Este en especifico tiene
-    una funcion de evaluacion que prioriza huir de los fantasmas.
-    """
-    def evaluationFunction(self, state):
+###########################################################################
+# Stefano
+###########################################################################
+
+class AlphaBetaNeuralAgent(NeuralAgent, AlphaBetaAgent):
+    ''''''
+
+    # Weight of the neural score
+    nweight: float = float(os.getenv('NEURAL_WEIGHT', 0.9))
+
+    @override
+    def evaluationFunction(self, state) -> float:
         """
-        Una función de evaluación basada en la red neuronal y en heurísticas adicionales (huir).
+        Una función de evaluación basada en la red neuronal y en alphabeta con heurísticas.
         """
+        return self.traditionalEvaluation(state) *  (1 - type(self).nweight) + self.neuralEvaluation(state) * type(self).nweight
+
+    @override
+    def getAction(self, gameState: 'GameState') -> str:
+        '''
+        Calcula la mejor acción combinando un prior de política neuronal (Policy Network)
+        en el nodo raíz con una búsqueda adversaria (Alpha-Beta) para evaluar las consecuencias.
+
+        :param gameState: Estado actual de la partida.
+        :return: String con la acción elegida (ej. 'North', 'Stop').
+        '''
+        self.move_count += 1
+
         if self.model is None:
-            return 0  # Si no hay modelo, devolver 0
+            print('ERROR: Modelo no cargado. Saliendo...')
+            exit()
 
-        # Convertir a matriz
-        state_matrix = self.state_to_matrix(state)
+        legal_actions = gameState.getLegalActions(0)
 
-        # Convertir a tensor
+        # 1. Policy Prior: Evaluación directa con la red neuronal del estado actual
+        state_matrix = self.state_to_matrix(gameState)
         state_tensor = torch.FloatTensor(state_matrix).unsqueeze(0).to(self.device)
 
-        # Obtener predicciones
         with torch.no_grad():
             output = self.model(state_tensor)
             probabilities = torch.nn.functional.softmax(output, dim=1).cpu().numpy()[0]
 
-        # Obtener acciones legales
-        legal_actions = state.getLegalActions()
-
-        # Aplicar heurísticas adicionales, similar a betterEvaluationFunction
-        score = state.getScore()
-
-        # Mejorar la evaluación con conocimiento del dominio
-        pacman_pos = state.getPacmanPosition()
-        food = state.getFood().asList()
-        ghost_states = state.getGhostStates()
-
-        # Factor 1: Proximidad a fantasmas
-        for ghost_state in ghost_states:
-            ghost_pos = ghost_state.getPosition()
-            ghost_distance = manhattanDistance(pacman_pos, ghost_pos)
-
-            # Si el fantasma esta asustado lo ignoramos
-            if not ghost_state.scaredTimer > ghost_distance:
-                # Cuanto mas lejos mejor
-                score += ghost_distance * 20
-                # Si esta muy cerca, fatal
-                if ghost_distance <= 3:
-                    # Penalizacion gradual para evitar acercamiento
-                    score -= 200 * (4 - ghost_distance)  # Gran penalización por estar demasiado cerca
-
-        # Factor 2: Distancia a la comida más cercana
-        if food:
-            # Para desempatar
-            min_food_distance = min(manhattanDistance(pacman_pos, food_pos) for food_pos in food)
-            score += (1.0 / (min_food_distance + 1)) * 20
-
-        # Combinar la puntuación de la red con la heurística
-        neural_score = 0
-        for i, action in enumerate(self.idx_to_action.values()):
+        # Extraer probabilidades solo para acciones legales
+        action_probs: dict[str, float] = {}
+        for idx, prob in enumerate(probabilities):
+            action = self.idx_to_action[idx]
             if action in legal_actions:
-                neural_score += probabilities[i] * 15
+                action_probs[action] = float(prob)
 
-        return score + neural_score
+        best_action = None
+        best_score = float('-inf')
+        alpha = float('-inf')
+        beta = float('inf')
+
+        # 2. Búsqueda Alpha-Beta + Integración del Prior Neuronal
+        for action in legal_actions:
+            successor = gameState.generateSuccessor(0, action)
+
+            # El valor devuelto ya está ponderado internamente por evaluationFunction en los nodos hoja
+            ab_score = self._alphaBeta(1, 0, successor, alpha, beta)
+
+            # Prior de la red para la acción raíz, escalado y ponderado por nweight
+            neural_action_score = (action_probs[action] * 100.0) * type(self).nweight
+
+            # Combinación: Búsqueda (Value) + Instinto (Policy)
+            combined_score = ab_score + neural_action_score
+
+            # Penalización heurística determinista
+            if action == 'Stop' and len(legal_actions) > 1:
+                combined_score -= 50.0
+
+            # Actualización del mejor nodo
+            if combined_score > best_score:
+                best_score = combined_score
+                best_action = action
+
+            # Actualización de Alpha para la poda en la raíz
+            alpha = max(alpha, best_score)
+
+        return best_action
 
 # Definir una función para crear el agente
 def createNeuralAgent(model_path="models/pacman_model.pth"):
@@ -1121,4 +1357,3 @@ def createNeuralAgent(model_path="models/pacman_model.pth"):
     Útil para integrarse con la estructura de pacman.py.
     """
     return NeuralAgent(model_path)
-

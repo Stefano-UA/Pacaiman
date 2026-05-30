@@ -36,7 +36,7 @@ import sys
 import gamedata # Para la extraccion de datos de la partida
 import random
 if not os.getenv('PACMAN_RANDOM'):
-    random.seed(42) # Para reproducibilidad de los resultados
+    random.seed(int(os.getenv('SEED', 42))) # Para reproducibilidad de los resultados
 ###################################################
 
 class Agent:
