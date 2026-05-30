@@ -219,48 +219,89 @@ class MinimaxAgent(MultiAgentSearchAgent):
 
 class AlphaBetaAgent(MultiAgentSearchAgent):
     '''
-    Your minimax agent with alpha-beta pruning (question 3)
+    Agente Minimax con poda Alpha-Beta para multiples adversarios.
     '''
-    def _alphaBeta(self, agentIndex, depth, gameState, alpha, beta):
-        if gameState.isWin() or gameState.isLose() or depth == self.depth:
-            return self.evaluationFunction(gameState)
 
+    def _alphaBeta(self, agentIndex: int, depth: int, gameState: 'GameState', alpha: float, beta: float) -> float:
+        '''
+        Funcion recursiva que expande el arbol de busqueda aplicando poda.
+
+        :param agentIndex: Indice del agente actual (0=Pacman, >0=Fantasmas).
+        :param depth: Nivel actual de profundidad en el arbol.
+        :param gameState: Estado fisico de la simulacion.
+        :param alpha: Mejor valor garantizado para el maximizador.
+        :param beta: Mejor valor garantizado para el minimizador.
+        :return: Puntuacion evaluada del nodo.
+        '''
+        # Condicion de parada: estado terminal o limite de profundidad
+        if gameState.isWin() or gameState.isLose() or depth == self.depth:
+            return float(self.evaluationFunction(gameState))
+
+        # Bifurcacion: Pacman maximiza (0), los fantasmas minimizan (>0)
         if agentIndex == 0:
             return self._maxValue(agentIndex, depth, gameState, alpha, beta)
         else:
             return self._minValue(agentIndex, depth, gameState, alpha, beta)
 
-    def _maxValue(self, agentIndex, depth, gameState, alpha, beta):
+    def _maxValue(self, agentIndex: int, depth: int, gameState: 'GameState', alpha: float, beta: float) -> float:
+        '''
+        Calcula el mejor movimiento para Pacman intentando maximizar el valor.
+
+        :param agentIndex: Indice del agente (0).
+        :param depth: Nivel actual de profundidad.
+        :param gameState: Estado de la simulacion.
+        :param alpha: Cota inferior actual.
+        :param beta: Cota superior actual.
+        :return: Valor maximo encontrado.
+        '''
+        # Inicia con la peor cota para Pacman
         v = float('-inf')
         legalActions = gameState.getLegalActions(agentIndex)
 
+        # Retorno temprano si no hay jugadas posibles
         if not legalActions:
-            return self.evaluationFunction(gameState)
+            return float(self.evaluationFunction(gameState))
 
-        # Move Ordering O(1): Retrasar 'Stop' para evaluar acciones útiles primero
+        # Ordenamiento O(1): mueve 'Stop' al final para evaluar movimientos utiles primero y favorecer podas tempranas
         if 'Stop' in legalActions:
             legalActions.remove('Stop')
             legalActions.append('Stop')
 
         for action in legalActions:
-            # Generación perezosa: solo se clona si no ha habido poda
+            # Evaluacion perezosa: el estado solo se clona si no se corto el bucle por poda
             successor = gameState.generateSuccessor(agentIndex, action)
             v = max(v, self._alphaBeta(1, depth, successor, alpha, beta))
+            # Poda Beta: corta la exploracion si el valor ya es peor para el minimizador que su alternativa segura
             if v > beta:
                 return v
+            # Actualiza la cota inferior
             alpha = max(alpha, v)
         return v
 
-    def _minValue(self, agentIndex, depth, gameState, alpha, beta):
+    def _minValue(self, agentIndex: int, depth: int, gameState: 'GameState', alpha: float, beta: float) -> float:
+        '''
+        Calcula el peor escenario para Pacman evaluando los movimientos del fantasma actual.
+
+        :param agentIndex: Indice del fantasma activo.
+        :param depth: Nivel actual de profundidad.
+        :param gameState: Estado de la simulacion.
+        :param alpha: Cota inferior actual.
+        :param beta: Cota superior actual.
+        :return: Valor minimo encontrado.
+        '''
+        # Inicia con la peor cota para los fantasmas
         v = float('inf')
         legalActions = gameState.getLegalActions(agentIndex)
 
+        # Retorno temprano si el fantasma no puede moverse
         if not legalActions:
-            return self.evaluationFunction(gameState)
+            return float(self.evaluationFunction(gameState))
 
+        # Calcula la transicion de turnos entre agentes
         nextAgent = agentIndex + 1
         nextDepth = depth
 
+        # Si todos los fantasmas movieron, el turno vuelve a Pacman y baja un nivel de profundidad
         if nextAgent == gameState.getNumAgents():
             nextAgent = 0
             nextDepth = depth + 1
@@ -268,14 +309,19 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
         for action in legalActions:
             successor = gameState.generateSuccessor(agentIndex, action)
             v = min(v, self._alphaBeta(nextAgent, nextDepth, successor, alpha, beta))
+            # Poda Alpha: corta la exploracion si el valor ya es peor para el maximizador que su alternativa segura
             if v < alpha:
                 return v
+            # Actualiza la cota superior
             beta = min(beta, v)
         return v
 
-    def getAction(self, gameState: 'GameState'):
+    def getAction(self, gameState: 'GameState') -> str:
         '''
-        Returns the minimax action using self.depth and self.evaluationFunction
+        Controlador raiz que inicia la busqueda Minimax con poda Alpha-Beta.
+
+        :param gameState: Estado de partida actual.
+        :return: Direccion del movimiento elegido.
         '''
         bestAction = None
         bestScore = float('-inf')
@@ -284,18 +330,22 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
 
         legalActions = gameState.getLegalActions(0)
 
+        # Ordenamiento O(1): desplaza 'Stop' al final
         if 'Stop' in legalActions:
             legalActions.remove('Stop')
             legalActions.append('Stop')
 
         for action in legalActions:
+            # Inicia el arbol evaluando cada jugada valida desde la raiz pasando el turno al primer fantasma
             successor = gameState.generateSuccessor(0, action)
             score = self._alphaBeta(1, 0, successor, alpha, beta)
 
+            # Actualiza la accion optima si la rama actual devuelve mejor puntuacion
             if score > bestScore:
                 bestScore = score
                 bestAction = action
 
+            # Sube la cota Alpha base para propagar el corte en las siguientes iteraciones de la raiz
             alpha = max(alpha, bestScore)
 
         return bestAction
