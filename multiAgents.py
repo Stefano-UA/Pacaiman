@@ -369,39 +369,38 @@ def getMazeDistance(pos1: tuple[float, float], pos2: tuple[float, float], gameSt
 
 class HibridAgent(AlphaBetaAgent):
     '''
-    Agente basado en dos estados (Pacifico, Supervivencia) dictados por una simple heuristica
-    booleana de riesgo. El modo pacifico esta basado en una serie de heuristicas topologicas para
-    ir comiendose puntos de manera eficiente y el modo supervivencia usa una busqueda Alpha-Beta
-    con una heuristica (funcion de evaluacion) basada en maximizar la supervivencia.
+    Agente hibrido de dos estados (Pacifico, Supervivencia) controlado por una evaluacion de riesgo.
+    - Modo Pacifico: Busqueda Greedy guiada por heuristicas topologicas (MST, Voronoi).
+    - Modo Supervivencia: Busqueda adversaria Alpha-Beta para maximizar tiempo de vida.
     '''
     def __init__(self, depth: str = '4') -> None:
         '''
-        Inicializa el agente híbrido delegando en la clase base y sobrescribiendo la evaluación.
+        Inicializa el agente y enlaza la funcion de evaluacion local para la poda Alpha-Beta.
 
-        :param depth: Profundidad de búsqueda para el árbol Minimax.
+        :param depth: Profundidad maxima del arbol de busqueda Minimax.
         '''
-        super().__init__('scoreEvaluationFunction', depth) # Luego sobrescribimos eval func
+        # Inicializa la clase base y sobrescribe la heuristica de evaluacion
+        super().__init__('scoreEvaluationFunction', depth)
         self.evaluationFunction = self.evaluationFunction_local
 
     def _init_matrices(self, gameState: 'GameState') -> None:
         '''
-        Precomputa la topología del laberinto usando BFS para generar matrices de distancias
-        reales (teniendo en cuenta paredes), identificar intersecciones y calcular la geometría de los nodos.
+        Precomputa la topologia estatica del laberinto en la primera llamada.
+        Genera matrices de distancias, detecta intersecciones y cachea
+        rutas obligatorias para evaluar la inercia en O(1).
 
-        :param gameState: Estado actual del juego.
+        :param gameState: Estado fisico inicial para extraer la cuadricula de muros.
         '''
-        # Patrón Singleton para evitar recalcular en cada turno
+        # Patron Singleton: evita recalcular la topologia si ya esta inicializada
         if getattr(self, '_initialized', False): return None
 
         walls = gameState.getWalls()
         self.width, self.height = walls.width, walls.height
-
-        # Filtra solo las casillas transitables
+        # Extrae las posiciones transitables del laberinto
         valid_positions: list[tuple[int, int]] = [(x, y) for x in range(self.width) for y in range(self.height) if not walls[x][y]]
 
         self.distance_matrix: dict[tuple[tuple[int, int], tuple[int, int]], int] = {}
-
-        # BFS desde cada casilla transitable a todas las demás
+        # 1. Matriz de adyacencia completa mediante BFS desde cada casilla
         for start_pos in valid_positions:
             self.distance_matrix[(start_pos, start_pos)] = 0
             queue: list[tuple[int, int, int]] = [(start_pos[0], start_pos[1], 0)]
@@ -417,8 +416,7 @@ class HibridAgent(AlphaBetaAgent):
                             queue.append((nx, ny, dist + 1))
 
         self.intersections: set[tuple[int, int]] = set()
-
-        # Identificación de nodos de decisión (aquellos con >= 3 salidas)
+        # 2. Identifica intersecciones (nodos con grado topologico >= 3)
         for pos in valid_positions:
             x, y = pos
             open_neighbors = sum(1 for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]
@@ -426,8 +424,7 @@ class HibridAgent(AlphaBetaAgent):
             if open_neighbors >= 3: self.intersections.add(pos)
 
         self.node_geometry: dict[tuple[int, int], tuple[int, int, int]] = {}
-
-        # Calcula la distancia desde cada posición a sus intersecciones más cercanas
+        # 3. Geometria de pasillos: calcula distancias a las intersecciones mas cercanas
         for pos in valid_positions:
             queue = [(pos[0], pos[1], 0)]
             visited = {pos}
@@ -450,10 +447,8 @@ class HibridAgent(AlphaBetaAgent):
             else:
                 self.node_geometry[pos] = (0, 0, 0)
 
-        # Precomputación O(1) de pasillos dirigidos (Inercia de fantasmas)
-        # Diccionario: (origen, destino_inmediato) -> (interseccion_final, casilla_previa_a_final, pasos, casillas_del_pasillo)
+        # 4. Cache de inercia O(1): Mapea (casilla_previa, casilla_actual) a su salida forzada
         self.directed_paths: dict[tuple[tuple[int, int], tuple[int, int]], tuple[tuple[int, int], tuple[int, int], int, dict[tuple[int, int], int]]] = {}
-
         for p in valid_positions:
             neighbors: list[tuple[int, int]] = []
             for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
@@ -461,13 +456,13 @@ class HibridAgent(AlphaBetaAgent):
                 if 0 <= nx < self.width and 0 <= ny < self.height and not walls[nx][ny]:
                     neighbors.append((nx, ny))
 
-            # Para cada posible procedencia, precalculamos hacia dónde nos obliga a ir el pasillo
+            # Calcula la ruta inercial obligatoria del fantasma desde cada origen
             for prev_pos in neighbors:
                 cx, cy = p
                 px, py = prev_pos
                 steps: int = 1
                 path_dict: dict[tuple[int, int], int] = {(cx, cy): 0}
-
+                # Simula el avance inercial por el pasillo
                 while True:
                     c_neighbors: list[tuple[int, int]] = []
                     for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
@@ -475,73 +470,70 @@ class HibridAgent(AlphaBetaAgent):
                         if 0 <= nnx < self.width and 0 <= nny < self.height and not walls[nnx][nny]:
                             c_neighbors.append((nnx, nny))
 
-                    # Si llegamos a una intersección o callejón, guardamos la ruta y paramos
+                    # Si alcanza interseccion o callejon, guarda la ruta en cache y termina
                     if len(c_neighbors) >= 3 or len(c_neighbors) <= 1:
                         self.directed_paths[(prev_pos, p)] = ((cx, cy), (px, py), steps, path_dict)
                         break
 
-                    # Si es un pasillo, avanzamos forzosamente hacia la única opción válida
+                    # Avance determinista: selecciona la salida distinta a la de entrada
                     next_pos = c_neighbors[0] if c_neighbors[0] != (px, py) else c_neighbors[1]
                     px, py = cx, cy
                     cx, cy = next_pos
                     path_dict[(cx, cy)] = steps
                     steps += 1
 
-        # Initialization guard
         self._initialized = True
 
     def _getMazeDistance(self, p1: tuple[float, float], p2: tuple[float, float]) -> float:
         '''
-        Recupera la distancia real de laberinto precomputada entre dos puntos.
+        Consulta la distancia precomputada O(1).
 
-        :param p1: Coordenadas (x, y) del primer punto.
-        :param p2: Coordenadas (x, y) del segundo punto.
-        :return: Distancia en pasos, o float('inf') si es inalcanzable.
+        :param p1: Coordenadas de origen.
+        :param p2: Coordenadas de destino.
+        :return: Distancia en pasos, o infinito si es inalcanzable.
         '''
+        # Redondea coordenadas al centro de la celda
         pos1 = (int(p1[0]+0.5), int(p1[1]+0.5))
         pos2 = (int(p2[0]+0.5), int(p2[1]+0.5))
         return self.distance_matrix.get((pos1, pos2), float('inf'))
 
     def _is_ghost_moving_away(self, pacman_pos: tuple[float, float], ghost_state: 'GhostState', walls: 'Grid') -> bool:
         '''
-        Comprueba si el vector de movimiento de un fantasma incrementa su distancia a Pacman.
+        Compara la distancia actual del fantasma con la distancia tras proyectar su vector un frame.
 
-        :param pacman_pos: Coordenadas actuales de Pacman.
-        :param ghost_state: Objeto de estado del fantasma a evaluar.
-        :param walls: Matriz de booleanos de las paredes.
-        :return: True si el fantasma se aleja en el siguiente frame, False de lo contrario.
+        :param pacman_pos: Posicion de Pacman.
+        :param ghost_state: Estado interno del fantasma.
+        :param walls: Matriz booleana de muros.
+        :return: True si el fantasma aumenta su distancia relativa.
         '''
         g_pos = ghost_state.getPosition()
         g_dir = ghost_state.getDirection()
-
         if g_dir == 'Stop': return False
 
+        # Proyecta el vector de movimiento un frame
         vectors: dict[str, tuple[int, int]] = {'North': (0, 1), 'South': (0, -1), 'East': (1, 0), 'West': (-1, 0)}
         dx, dy = vectors.get(g_dir, (0, 0))
         next_x, next_y = int(g_pos[0] + dx), int(g_pos[1] + dy)
-
-        # Previene errores si el motor intenta simular un movimiento contra una pared
+        # Retorna False si el movimiento choca contra un muro
         if walls[next_x][next_y]: return False
 
+        # Compara distancia actual y proyectada para determinar alejamiento
         dist_now = self._getMazeDistance(pacman_pos, g_pos)
         dist_next = self._getMazeDistance(pacman_pos, (next_x, next_y))
-
         return dist_next > dist_now
 
     def _get_ghost_effective_dist(self, ghost_state: 'GhostState', target_pos: tuple[float, float], walls: 'Grid') -> float:
         '''
-        Calcula la distancia inercial estricta asumiendo que los fantasmas no pueden
-        girar 180 grados a menos que lleguen a un callejón sin salida.
-        Utiliza precomputación O(1) para resolver intersecciones y pasillos al instante.
+        Calcula la cota inferior estricta de distancia a un objetivo forzando el cumplimiento
+        de la regla de inercia (no 180). Utiliza cache precomputada.
 
-        :param ghost_state: Estado actual del fantasma.
-        :param target_pos: Coordenadas del objetivo.
-        :param walls: Matriz de paredes del laberinto.
-        :return: Una distancia mínima obligada en pasos reales.
+        :param ghost_state: Estado del fantasma a simular.
+        :param target_pos: Coordenadas del objetivo de intercepcion.
+        :param walls: Matriz booleana de muros.
+        :return: Pasos minimos garantizados hasta el objetivo.
         '''
         g_pos = ghost_state.getPosition()
         g_dir = ghost_state.getDirection()
-
         pos = (int(g_pos[0] + 0.5), int(g_pos[1] + 0.5))
         target = (int(target_pos[0] + 0.5), int(target_pos[1] + 0.5))
 
@@ -552,46 +544,42 @@ class HibridAgent(AlphaBetaAgent):
         dx, dy = vectors.get(g_dir, (0, 0))
         nx, ny = pos[0] + dx, pos[1] + dy
 
+        # Aplica distancia base si el movimiento choca contra un muro
         if (nx < 0) or (nx >= self.width) or (ny < 0) or (ny >= self.height) or walls[nx][ny]:
             return base_dist
 
+        # Aplica distancia base si el fantasma ya se acerca al objetivo
         dist_next = self._getMazeDistance((nx, ny), target)
         if dist_next <= base_dist:
             return base_dist
 
-        # ---------------- RUTAS PRECOMPUTADAS O(1) ----------------
-
-        # 1. Recuperamos la ruta del pasillo actual en el que nos acabamos de meter
+        # Recupera la topologia precalculada del pasillo O(1)
         end_pos, prev_of_end, steps_to_end, path_dict = self.directed_paths[(pos, (nx, ny))]
 
-        # Si en nuestro camino forzado pisamos el objetivo, fin.
+        # Retorna distancia exacta si el objetivo se encuentra en el pasillo forzado
         if target in path_dict:
             return float(1 + path_dict[target])
 
-        # Llegamos a la primera intersección (o callejón). Extraemos sus salidas.
         open_neighbors: list[tuple[int, int]] = []
         for dxx, dyy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
             tx, ty = end_pos[0] + dxx, end_pos[1] + dyy
             if 0 <= tx < self.width and 0 <= ty < self.height and not walls[tx][ty]:
                 open_neighbors.append((tx, ty))
 
-        # Si es un callejón sin salida: la inercia nos obliga a dar media vuelta
+        # Calcula distancia con giro de 180 si es un callejon sin salida
         if len(open_neighbors) <= 1:
             return float(steps_to_end + self._getMazeDistance(end_pos, target))
 
-        # 2. Si es una intersección, evaluamos las ramas obligando al BFS a entrar en ellas
+        # Evalua las ramas de la interseccion omitiendo la de procedencia
         valid_next_steps = [n for n in open_neighbors if n != prev_of_end]
         min_branch_dist = float('inf')
 
         for next_step in valid_next_steps:
-            # Consultamos la caché O(1) para ver a dónde nos lleva esta rama en concreto
             b_end_pos, b_prev_of_end, b_steps, b_path_dict = self.directed_paths[(end_pos, next_step)]
-
+            # Comprueba si el objetivo esta en la rama evaluada
             if target in b_path_dict:
-                # Si el objetivo está dentro de esta rama
                 dist_via_this_branch = float(1 + b_path_dict[target])
             else:
-                # Si no, sumamos el coste de recorrer la rama + la distancia desde su final
                 dist_via_this_branch = float(b_steps + self._getMazeDistance(b_end_pos, target))
 
             if dist_via_this_branch < min_branch_dist:
@@ -601,26 +589,28 @@ class HibridAgent(AlphaBetaAgent):
 
     def _get_mst_cost(self, pacman_pos: tuple[float, float], food_list: list[tuple[float, float]]) -> float:
         '''
-        Aproximación Greedy al problema del viajante usando el algoritmo de Prim para el
-        árbol de expansión mínima (MST) sobre los puntos de comida restantes.
+        Calcula el Arbol de Expansion Minima (Algoritmo de Prim).
 
-        :param pacman_pos: Coordenadas iniciales de Pacman.
-        :param food_list: Lista de coordenadas de la comida activa.
-        :return: Coste total estimado del MST.
+        :param pacman_pos: Nodo raiz.
+        :param food_list: Nodos a conectar.
+        :return: Coste del MST.
         '''
         if not food_list: return 0
         nodes = [pacman_pos] + food_list
         unvisited = set(nodes)
         unvisited.remove(pacman_pos)
+        # Cachea distancias desde el arbol a los nodos no visitados
         min_dist_to_tree = {node: self._getMazeDistance(pacman_pos, node) for node in unvisited}
         mst_cost: float = 0
 
         while unvisited:
+            # Añade el nodo mas cercano al MST actual
             closest = min(unvisited, key=lambda n: min_dist_to_tree[n])
             cost = min_dist_to_tree[closest]
             mst_cost += cost
             unvisited.remove(closest)
 
+            # Actualiza distancias contra el nuevo nodo del MST
             for v in unvisited:
                 d = self._getMazeDistance(closest, v)
                 if d < min_dist_to_tree[v]:
@@ -630,41 +620,38 @@ class HibridAgent(AlphaBetaAgent):
 
     def _is_state_safe(self, state: 'GameState') -> bool:
         '''
-        Oráculo que determina el cambio de contexto entre
-        modo Pacífico y modo Pánico basándose en proximidad e inercia enemiga.
+        Determina si el entorno permite exploracion Greedy en lugar de evaluacion Minimax.
 
-        :param state: Estado a evaluar.
-        :return: True si no hay amenaza inminente, False para activar evasión.
+        :param state: Estado global del tablero.
+        :return: True si no existe amenaza inminente.
         '''
         pacman_pos = state.getPacmanPosition()
         walls = state.getWalls()
 
-        # Filtra fantasmas ignorando a los asustados que no suponen una amenaza temporal
+        # Filtra fantasmas asustados que no representan amenaza temporal
         active_ghosts = [g for g in state.getGhostStates() if g.scaredTimer <= self._getMazeDistance(pacman_pos, g.getPosition())]
-
         if not active_ghosts: return True
 
-        # Pánico incondicional por vecindad inmediata  # _get_ghost_effective_dist
+        # Retorna False si un fantasma activo esta a distancia <= 3
         if min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in active_ghosts) <= 3: return False
 
-        # Verifica si los fantasmas se están acercando físicamente
+        # Evalua fantasmas que se acercan inercialmente
         threats = [g for g in active_ghosts if not self._is_ghost_moving_away(pacman_pos, g, walls)]
         if not threats: return True
 
-        # Radio de seguridad ampliado frente a atacantes directos
+        # Retorna False si los fantasmas que se acercan estan a distancia <= 5
         if min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in threats) <= 5: return False
 
         return True
 
     def _pacificEvaluationFunction(self, state: 'GameState') -> float:
         '''
-        Heurística orientada a la recolección óptima. Usada únicamente cuando el oráculo
-        dictamina que el área está segura. Focalizada en limpiar endpoints y optimizar MST.
+        Heuristica de recoleccion (Modo Greedy). Prioriza recoleccion topologica.
 
-        :param state: Nodo hoja generado a evaluar.
-        :return: Puntuación estática del estado.
+        :param state: Estado a evaluar.
+        :return: Score numerico de calidad del nodo.
         '''
-        # Estados extremos
+        # Evaluacion de estados terminales
         if state.isLose(): return float('-inf')
         if state.isWin(): return float('inf')
 
@@ -672,6 +659,7 @@ class HibridAgent(AlphaBetaAgent):
         active_ghosts = [g for g in state.getGhostStates() if g.scaredTimer == 0]
         scared_ghosts = [g for g in state.getGhostStates() if g.scaredTimer > 0]
 
+        # Penalizacion letal ante colision inminente
         if active_ghosts:
             min_active_dist = min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in active_ghosts)
             if min_active_dist <= 1:
@@ -679,17 +667,16 @@ class HibridAgent(AlphaBetaAgent):
 
         score = state.getScore() * 1000.0
 
+        # Penalizacion por colision con fantasma asustado
         for sg in scared_ghosts:
             if self._getMazeDistance(pacman_pos, sg.getPosition()) <= 1:
-                # Chocar con asustado resta, pero salva del '-inf'
                 score -= 100000.0
 
-        # Voronoi parcial (límite 40 nodos) para medir el volumen espacial de escape
+        # Voronoi in-situ mediante BFS para detectar rutas bloqueadas temporalmente
         walls = state.getWalls()
         safe_territory: int = 0
         queue = [(pacman_pos[0], pacman_pos[1], 0)]
         visited = {pacman_pos}
-
         while queue and safe_territory < 40:
             cx, cy, p_dist = queue.pop(0)
             safe_territory += 1
@@ -699,7 +686,7 @@ class HibridAgent(AlphaBetaAgent):
                     if (nx, ny) not in visited:
                         node_safe = True
                         for g in active_ghosts:
-                            # Previsión para colisiones adelantadas
+                            # Cota topologica con margen de +2
                             if self._getMazeDistance(g.getPosition(), (nx, ny)) <= p_dist + 2:
                                 node_safe = False
                                 break
@@ -707,7 +694,7 @@ class HibridAgent(AlphaBetaAgent):
                             visited.add((nx, ny))
                             queue.append((nx, ny, p_dist + 1))
 
-        # Restricción topológica para evitar entrar voluntariamente en cuellos de botella
+        # Penalizacion por falta de territorio seguro
         if safe_territory < 15:
             score -= 900000.0
 
@@ -719,7 +706,7 @@ class HibridAgent(AlphaBetaAgent):
             min_food_dist = min(self._getMazeDistance(pacman_pos, f) for f in food_list)
             score += 200.0 / (min_food_dist + 0.1)
 
-            # Gravedad hacia nodos hoja (esquinas de laberinto) para evitar dejarlos para el final
+            # Penalizacion de nodos aislados (endpoints)
             endpoints: int = 0
             for f in food_list:
                 neighbors = sum(1 for other in food_list if f != other and self._getMazeDistance(f, other) <= 2)
@@ -729,7 +716,7 @@ class HibridAgent(AlphaBetaAgent):
                     endpoints += 1
 
             score -= endpoints * 2000.0
-
+            # Incentiva recoleccion segun el coste MST
             mst_cost = self._get_mst_cost(pacman_pos, food_list)
             score -= mst_cost * 50.0
 
@@ -737,13 +724,12 @@ class HibridAgent(AlphaBetaAgent):
 
     def evaluationFunction_local(self, state: 'GameState') -> float:
         '''
-        Heurística de supervivencia estricta, invocada por el árbol Minimax cuando
-        el agente detecta una amenaza directa.
+        Heuristica de supervivencia estricta (Modo Minimax).
+        Penaliza posiciones estructuralmente debiles.
 
-        :param state: Nodo del árbol de búsqueda.
-        :return: Evaluación flotante orientada a alejar a Pacman del peligro.
+        :param state: Nodo hoja del arbol de busqueda.
+        :return: Score numerico de invulnerabilidad.
         '''
-        # Estados extremos
         if state.isLose(): return float('-inf')
         if state.isWin(): return float('inf')
 
@@ -751,18 +737,19 @@ class HibridAgent(AlphaBetaAgent):
         active_ghosts = [g for g in state.getGhostStates() if g.scaredTimer == 0]
         walls = state.getWalls()
 
+        # Modo recoleccion prioritaria si no hay fantasmas activos
         if not active_ghosts:
             return 500000.0 + state.getScore() * 10.0
 
-        # Función inverso-cuadrática para forzar una repulsión explosiva al acercarse a fantasmas
+        # Penalizacion inverso-cuadratica por proximidad a fantasmas
         min_g_dist = min(self._getMazeDistance(pacman_pos, g.getPosition()) for g in active_ghosts)
         score = -500.0 / (min_g_dist ** 2 + 0.1)
         score += state.getScore() * 500.0
 
+        # Voronoi proyectado para nodos futuros en Minimax
         safe_territory: int = 0
         queue = [(pacman_pos[0], pacman_pos[1], 0)]
         visited = {pacman_pos}
-
         while queue and safe_territory < 40:
             cx, cy, p_dist = queue.pop(0)
             safe_territory += 1
@@ -772,6 +759,7 @@ class HibridAgent(AlphaBetaAgent):
                     if (nx, ny) not in visited:
                         node_safe = True
                         for g in active_ghosts:
+                            # Cota topologica con margen de +1
                             if self._getMazeDistance(g.getPosition(), (nx, ny)) <= p_dist + 1:
                                 node_safe = False
                                 break
@@ -781,6 +769,7 @@ class HibridAgent(AlphaBetaAgent):
 
         is_trapped = (safe_territory < 15)
 
+        # Penaliza encierros en el arbol Minimax
         if is_trapped:
             score -= 900000.0
             score += min_g_dist * 50.0
@@ -795,33 +784,31 @@ class HibridAgent(AlphaBetaAgent):
         capsules = state.getCapsules()
         override = False
 
-        # Midgame Rush: Ignora penalizaciones si la captura de la cápsula es matemáticamente segura
+        # Midgame Rush: prioriza capsulas seguras
         if capsules:
             closest_cap_dist = min([self._getMazeDistance(pacman_pos, c) for c in capsules])
             closest_ghost_to_cap = min([self._getMazeDistance(g.getPosition(), c) for c in capsules for g in active_ghosts])
-
             if closest_cap_dist < closest_ghost_to_cap:
                 override = True
                 score += 100000.0 / (closest_cap_dist + 1)
                 if is_trapped:
                     score += 900000.0
 
-        # Endgame Rush Seguro (Simulación Greedy con Inercia)
-        # Calcula el coste de recolección temporal asumiendo intercepción óptima
+        # Endgame Rush: simulacion de limpieza final
         if not override and food_list and len(food_list) <= 10:
             curr_pos = pacman_pos
             time_elapsed: int = 0
             safe_path = True
             unvisited = set(food_list)
-
             while unvisited:
+                # Selecciona nodo mas cercano
                 next_food = min(unvisited, key=lambda f: self._getMazeDistance(curr_pos, f))
                 dist = self._getMazeDistance(curr_pos, next_food)
                 time_elapsed += int(dist)
                 curr_pos = next_food
 
+                # Verifica colision futura usando distancia inercial del fantasma
                 for g in active_ghosts:
-                    # Aplicamos la inercia real para saber si el fantasma nos intercepta en este salto
                     g_eff_dist = self._get_ghost_effective_dist(g, next_food, walls)
                     if g_eff_dist <= time_elapsed + 1:
                         safe_path = False
@@ -829,6 +816,7 @@ class HibridAgent(AlphaBetaAgent):
                 if not safe_path: break
                 unvisited.remove(next_food)
 
+            # Activa Endgame Rush si la ruta simulada es segura
             if safe_path:
                 override = True
                 mst_cost = self._get_mst_cost(pacman_pos, food_list)
@@ -836,7 +824,7 @@ class HibridAgent(AlphaBetaAgent):
                 if is_trapped:
                     score += 900000.0
 
-        # Castigo sistemático para evitar que se asiente en pasillos vulnerables
+        # Penaliza posicionamiento en pasillos largos o cerrados
         if not override and not is_trapped and min_g_dist > 3:
             nearest, farthest, length = self.node_geometry.get(pacman_pos, (0, 0, 0))
             score -= length * 200.0
@@ -846,20 +834,17 @@ class HibridAgent(AlphaBetaAgent):
 
     def getAction(self, gameState: 'GameState') -> str:
         '''
-        Controlador principal del agente. Elige ejecutar búsqueda Minimax o
-        comportamiento codicioso basado en el Oráculo.
+        Selector raiz de acciones. Selecciona evaluacion Greedy o Alpha-Beta segun riesgo.
 
-        :param gameState: Estado físico de la simulación.
-        :return: Representación en string de la acción elegida (ej. 'North', 'Stop').
+        :param gameState: Estado actual inalterado.
+        :return: Accion valida (e.g. 'North', 'Stop').
         '''
         self._init_matrices(gameState)
         legal_actions = gameState.getLegalActions(0)
 
-        # FIX 3: Fallback Inteligente (Elegir la acción que retrasa la muerte)
-        # Actúa como un tie-breaker de seguridad si todas las ramas devuelven -inf
+        # Accion fallback: selecciona movimiento que maximiza distancia a enemigos en caso de muerte inevitable
         best_fallback = 'Stop'
         max_dist_to_death: float = -1
-
         for a in legal_actions:
             succ = gameState.generateSuccessor(0, a)
             p_pos = succ.getPacmanPosition()
@@ -874,29 +859,28 @@ class HibridAgent(AlphaBetaAgent):
 
         fallback_action = best_fallback
 
+        # Ejecucion Pacifico: busqueda Greedy a profundidad 1
         if self._is_state_safe(gameState):
             best_score = float('-inf')
             best_action = fallback_action
-
-            # Búsqueda Greedy a profundidad 1 (sin proyectar movimientos del enemigo)
             for a in legal_actions:
                 succ = gameState.generateSuccessor(0, a)
                 score = self._pacificEvaluationFunction(succ)
 
-                # Penalización heurística para promover movimiento constante
+                # Penalizacion por inaccion ('Stop')
                 if a == 'Stop': score -= 15.0
 
                 if score > best_score:
                     best_score = score
                     best_action = a
-
             return best_action
+
+        # Ejecucion Supervivencia: Minimax Alpha-Beta
         else:
             best_score = float('-inf')
             best_action = fallback_action
             alpha, beta = float('-inf'), float('inf')
 
-            # Llamada raíz del algoritmo Alpha-Beta Pruning
             for a in legal_actions:
                 succ = gameState.generateSuccessor(0, a)
                 score = self._alphaBeta(1, 0, succ, alpha, beta)
@@ -907,8 +891,8 @@ class HibridAgent(AlphaBetaAgent):
                     best_score = score
                     best_action = a
 
+                # Actualiza cota Alpha con el mejor score
                 alpha = max(alpha, best_score)
-
             return best_action
 
 ###########################################################################
