@@ -352,17 +352,22 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
 
 class AlphaBetaRnAgent(AlphaBetaAgent):
     '''
-    Minimax agent with alpha-beta pruning and randomized selection when there are ties between options.
+    Agente Minimax con poda Alpha-Beta que selecciona aleatoriamente entre jugadas
+    con puntuaciones empatadas o dentro de un margen de tolerancia.
     '''
 
-    # Tolerance for whats considered a tie
-    tolerance = 0.0
+    # Margen relativo para considerar dos puntuaciones como equivalentes
+    tolerance: float = 0.0
 
-    def getAction(self, gameState):
+    def getAction(self, gameState: 'GameState') -> str:
         '''
-        Returns the minimax action using self.depth and self.evaluationFunction
+        Evalua las opciones raiz y selecciona la accion optima. Desempata
+        aleatoriamente si multiples ramas devuelven valores similares.
+
+        :param gameState: Estado actual de la partida.
+        :return: Direccion del movimiento elegido.
         '''
-        bestActions = []
+        bestActions: list[str] = []
         bestScore = float('-inf')
         alpha = float('-inf')
         beta = float('inf')
@@ -371,19 +376,25 @@ class AlphaBetaRnAgent(AlphaBetaAgent):
             successor = gameState.generateSuccessor(0, action)
             score = self._alphaBeta(1, 0, successor, alpha, beta)
 
+            # Calcula la ventana de tolerancia proporcional al score actual
             if bestScore == float('-inf'):
                 tolerance_window = 0.0
             else:
                 tolerance_window = type(self).tolerance * abs(bestScore)
 
+            # Si el score supera el limite de tolerancia, reinicia la lista con el nuevo maximo
             if score > bestScore + tolerance_window:
                 bestScore = score
                 bestActions = [action]
+            # Si el score cae dentro del margen, añade la accion a las candidatas
             elif abs(score - bestScore) <= tolerance_window:
                 bestActions.append(action)
                 bestScore = max(bestScore, score)
+
+            # Actualiza la cota Alpha para forzar la poda en las siguientes ramas
             alpha = max(alpha, bestScore)
 
+        # Retorna una opcion al azar entre todas las empatadas
         return random.choice(bestActions)
 
 def getMazeDistance(pos1: tuple[float, float], pos2: tuple[float, float], gameState: 'GameState') -> float:
