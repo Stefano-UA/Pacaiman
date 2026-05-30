@@ -118,91 +118,99 @@ class MultiAgentSearchAgent(Agent):
 # <=====================================================================================================================>
 
 class MinimaxAgent(MultiAgentSearchAgent):
-    """
-    Minimax agent for Pacman with multiple ghosts
-    """
+    '''
+    Agente Minimax para Pacman capaz de manejar multiples fantasmas simultaneamente.
+    '''
+    def _minimax(self, agentIndex: int, depth: int, gameState: 'GameState') -> float:
+        '''
+        Funcion recursiva principal que expande el arbol de busqueda.
 
-    def _minimax(self, agentIndex, depth, gameState):
-        """
-        Recursive minimax function
-
-        Args:
-        - agentIndex: Current agent (0=Pacman, 1+=Ghosts)
-        - depth: Current depth in the game tree
-        - gameState: Current state of the game
-
-        Returns:
-        - Best evaluation score for this state
-        """
-        # Base case: terminal state or maximum depth reached
+        :param agentIndex: Indice del agente actual (0=Pacman, >0=Fantasmas).
+        :param depth: Nivel actual de profundidad en el arbol.
+        :param gameState: Estado fisico de la simulacion.
+        :return: Puntuacion evaluada del nodo.
+        '''
+        # Condicion de corte: alcanzamos un final de partida o el limite de profundidad asignado
         if gameState.isWin() or gameState.isLose() or depth == self.depth:
-            return self.evaluationFunction(gameState)
+            return float(self.evaluationFunction(gameState))
 
-        # Pacman's turn (Maximizer)
+        # Bifurcacion de turnos: Pacman busca maximizar, los fantasmas minimizar
         if agentIndex == 0:
             return self._maxValue(agentIndex, depth, gameState)
-        # Ghost's turn (Minimizer)
         else:
             return self._minValue(agentIndex, depth, gameState)
 
-    def _maxValue(self, agentIndex, depth, gameState):
-        """
-        Handles Pacman's moves (maximizing player)
-        """
-        v = float('-inf')  # Start with worst possible value
+    def _maxValue(self, agentIndex: int, depth: int, gameState: 'GameState') -> float:
+        '''
+        Calcula el mejor movimiento posible para Pacman asumiendo respuestas optimas del rival.
+
+        :param agentIndex: Indice del agente (siempre 0).
+        :param depth: Nivel actual de profundidad.
+        :param gameState: Estado de la simulacion a evaluar.
+        :return: Cota maxima garantizada.
+        '''
+        v = float('-inf')
         legalActions = gameState.getLegalActions(agentIndex)
 
-        # No legal actions available
+        # Failsafe topologico: evalua directamente si no hay salidas legales posibles
         if not legalActions:
-            return self.evaluationFunction(gameState)
+            return float(self.evaluationFunction(gameState))
 
-        # Try each possible action and choose the best
+        # Expande los sucesores y sube el valor mas alto devuelto por el subarbol
         for action in legalActions:
             successor = gameState.generateSuccessor(agentIndex, action)
-            # After Pacman moves, first ghost plays (agent 1)
+            # El turno siempre pasa al primer fantasma despues de Pacman
             v = max(v, self._minimax(1, depth, successor))
         return v
 
-    def _minValue(self, agentIndex, depth, gameState):
-        """
-        Handles Ghost moves (minimizing players)
-        """
-        v = float('inf')  # Start with best possible value for Pacman
+    def _minValue(self, agentIndex: int, depth: int, gameState: 'GameState') -> float:
+        '''
+        Calcula el peor escenario para Pacman evaluando las opciones de un fantasma.
+
+        :param agentIndex: Indice del fantasma activo.
+        :param depth: Nivel actual de profundidad.
+        :param gameState: Estado de la simulacion a evaluar.
+        :return: Cota minima garantizada.
+        '''
+        v = float('inf')
         legalActions = gameState.getLegalActions(agentIndex)
 
-        # No legal actions available
+        # Failsafe topologico: si el fantasma esta bloqueado, evaluamos el estado
         if not legalActions:
-            return self.evaluationFunction(gameState)
+            return float(self.evaluationFunction(gameState))
 
-        # Determine next agent and depth
+        # Calculo de la progresion de turnos entre todos los actores de la partida
         nextAgent = agentIndex + 1
         nextDepth = depth
 
-        # If all ghosts have moved, return to Pacman and increment depth
+        # Si han movido todos los fantasmas, cerramos la capa y devolvemos el turno a Pacman
         if nextAgent == gameState.getNumAgents():
-            nextAgent = 0      # Back to Pacman
-            nextDepth = depth + 1  # New ply begins
+            nextAgent = 0
+            nextDepth = depth + 1
 
-        # Try each possible action and choose the worst for Pacman
+        # Expande los sucesores asumiendo hostilidad total (se quedan con el valor que mas dañe a Pacman)
         for action in legalActions:
             successor = gameState.generateSuccessor(agentIndex, action)
             v = min(v, self._minimax(nextAgent, nextDepth, successor))
         return v
 
-    def getAction(self, gameState):
-        """
-        Returns the minimax action using self.depth and self.evaluationFunction.
-        """
-        # Main decision logic for Pacman
+    def getAction(self, gameState: 'GameState') -> str:
+        '''
+        Controlador raiz que inicia la busqueda y extrae la accion asociada al mejor nodo.
+
+        :param gameState: Estado de partida en el momento actual.
+        :return: String representando la direccion del movimiento elegido.
+        '''
         bestAction = None
         bestScore = float('-inf')
 
-        # Try each legal action for Pacman
+        # Lanzamos el algoritmo evaluando las consecuencias de cada jugada legal inmediata
         for action in gameState.getLegalActions(0):
             successor = gameState.generateSuccessor(0, action)
-            # Start minimax with first ghost (agent 1) at current depth
+            # Instanciamos la primera busqueda pasando el turno al primer fantasma
             score = self._minimax(1, 0, successor)
 
+            # Actualizamos el registro si encontramos una rama estrictamente superior
             if score > bestScore:
                 bestScore = score
                 bestAction = action
@@ -341,15 +349,12 @@ def getMazeDistance(pos1: tuple[float, float], pos2: tuple[float, float], gameSt
     # Redondeo de coordenadas al centro de la celda más cercana
     x1, y1 = int(pos1[0] + 0.5), int(pos1[1] + 0.5)
     x2, y2 = int(pos2[0] + 0.5), int(pos2[1] + 0.5)
-
     # Retorno temprano si origen y destino coinciden
     if (x1, y1) == (x2, y2): return 0.0
-
     # Inicialización de la cola BFS y el conjunto de nodos visitados
     queue: list[tuple[int, int, int]] = [(x1, y1, 0)]
     visited: set[tuple[int, int]] = {(x1, y1)}
     walls = gameState.getWalls()
-
     # Exploración iterativa nivel por nivel
     while queue:
         x, y, dist = queue.pop(0)
@@ -363,7 +368,6 @@ def getMazeDistance(pos1: tuple[float, float], pos2: tuple[float, float], gameSt
                 if not walls[nx][ny] and (nx, ny) not in visited:
                     visited.add((nx, ny))
                     queue.append((nx, ny, dist + 1))
-
     # No existe ningún camino físico que conecte los puntos
     return float('inf')
 
