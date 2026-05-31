@@ -20,10 +20,7 @@
 
 ## Demo
 
-https://github.com/Stefano-UA/Pacaiman/blob/9d1154c5807a741e7cb60e2c1d87ab6be97b2b18/videos/HibridAgent_ClassicMaze.webm
-
-https://github.com/Stefano-UA/Pacaiman/blob/9d1154c5807a741e7cb60e2c1d87ab6be97b2b18/videos/HibridAgent_CustomMaze.webm
-
-https://github.com/Stefano-UA/Pacaiman/blob/9d1154c5807a741e7cb60e2c1d87ab6be97b2b18/videos/AlphaBetaNeuralAgent_ClassicMaze.webm
-
-https://github.com/Stefano-UA/Pacaiman/blob/9d1154c5807a741e7cb60e2c1d87ab6be97b2b18/videos/AlphaBetaNeuralAgent_CustomMaze.webm
+[HibridAgent_ClassicMaze.webm](https://github.com/user-attachments/assets/59588661-3aa2-4dca-9056-ff6a22e642c0)
+[HibridAgent_CustomMaze.webm](https://github.com/user-attachments/assets/6d7caa4b-739c-4840-9c31-86d57afb813e)
+[AlphaBetaNeuralAgent_ClassicMaze.webm](https://github.com/user-attachments/assets/e1519919-1271-4e70-b064-32197d608700)
+[AlphaBetaNeuralAgent_CustomMaze.webm](https://github.com/user-attachments/assets/c492753d-9ba9-4396-ae6a-107bc07d51d4)
