@@ -17,3 +17,13 @@
 ./scripts/run.sh -p NeuralAgent # to play with neural agent
 ./scripts/train.sh # to train the neural agent
 ```
+
+## Demo
+
+https://github.com/Stefano-UA/Pacaiman/blob/9d1154c5807a741e7cb60e2c1d87ab6be97b2b18/videos/HibridAgent_ClassicMaze.webm
+
+https://github.com/Stefano-UA/Pacaiman/blob/9d1154c5807a741e7cb60e2c1d87ab6be97b2b18/videos/HibridAgent_CustomMaze.webm
+
+https://github.com/Stefano-UA/Pacaiman/blob/9d1154c5807a741e7cb60e2c1d87ab6be97b2b18/videos/AlphaBetaNeuralAgent_ClassicMaze.webm
+
+https://github.com/Stefano-UA/Pacaiman/blob/9d1154c5807a741e7cb60e2c1d87ab6be97b2b18/videos/AlphaBetaNeuralAgent_CustomMaze.webm
