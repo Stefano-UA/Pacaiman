@@ -182,14 +182,14 @@ Para evitarlo el agente calcula previamente un movimiento *Greedy* (a profundida
 
 A continuación se muestran las capturas de ejecución y la tabla comparativa con los resultados obtenidos al someter a los distintos agentes a 100 ejecuciones.
 
-![Benchmark NeuralAgent2 mediumClassic](./assets/screenshots/bmk_NeuralAgent2.png)
-![Benchmark NeuralAgent mediumClassic](./assets/screenshots/bmk_NeuralAgent.png)
-![Benchmark AlphaBetaNeuralAgent mediumClassic](./assets/screenshots/bmk_AlphaBetaNeuralAgent.png)
-![Benchmark HibridAgent mediumClassic](./assets/screenshots/bmk_HibridAgent.png)
-![Benchmark NeuralAgent2 customMaze](./assets/screenshots/bmk_NeuralAgent2_custom.png)
-![Benchmark NeuralAgent customMaze](./assets/screenshots/bmk_NeuralAgent_custom.png)
-![Benchmark AlphaBetaNeuralAgent customMaze](./assets/screenshots/bmk_AlphaBetaNeuralAgent_custom.png)
-![Benchmark HibridAgent customMaze](./assets/screenshots/bmk_HibridAgent_custom.png)
+![Benchmark NeuralAgent2 mediumClassic](../assets/screenshots/bmk_NeuralAgent2.png)
+![Benchmark NeuralAgent mediumClassic](../assets/screenshots/bmk_NeuralAgent.png)
+![Benchmark AlphaBetaNeuralAgent mediumClassic](../assets/screenshots/bmk_AlphaBetaNeuralAgent.png)
+![Benchmark HibridAgent mediumClassic](../assets/screenshots/bmk_HibridAgent.png)
+![Benchmark NeuralAgent2 customMaze](../assets/screenshots/bmk_NeuralAgent2_custom.png)
+![Benchmark NeuralAgent customMaze](../assets/screenshots/bmk_NeuralAgent_custom.png)
+![Benchmark AlphaBetaNeuralAgent customMaze](../assets/screenshots/bmk_AlphaBetaNeuralAgent_custom.png)
+![Benchmark HibridAgent customMaze](../assets/screenshots/bmk_HibridAgent_custom.png)
 
 ### Tabla Comparativa de Rendimiento
 
@@ -198,7 +198,7 @@ A continuación se muestran las capturas de ejecución y la tabla comparativa co
 | **NeuralAgent** (Original) | 156.58 / 4% | 134.81 / 0% |
 | **NeuralAgent2** (+ Heurísticas) | 273.66 / 9% | 150.94 / 1% |
 | **AlphaBetaNeuralAgent** (Final) | 259.94 / 2% | 402.28 / 3% |
-| **HibridAgent** (Pura Búsqueda/Referencia) | 1507.48 / 97% | 1408.45 / 90% |
+| **HibridAgent** (Pura Búsqueda/Referencia) | 1507.48 / 97% | 1408.45 / 95% |
 
 ### Análisis de los Resultados
 
