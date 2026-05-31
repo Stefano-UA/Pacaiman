@@ -2,12 +2,12 @@
 
 ## Tasks
 
-- [ ] Task 1 —  Improve the evaluation function with new heuristics
-- [ ] Task 2 —  Train the model with good games
-- [ ] Task 3 —  Implement AlphaBetaNeuralAgent
-- [ ] Task 4 —  Report results in a comparative table
-- [ ] Task 5 —  New layout to test
-- [ ] Task 6 —  Record the video of the best game
+- [X] Task 1 —  Improve the evaluation function with new heuristics
+- [X] Task 2 —  Train the model with good games
+- [X] Task 3 —  Implement AlphaBetaNeuralAgent
+- [X] Task 4 —  Report results in a comparative table
+- [X] Task 5 —  New layout to test
+- [X] Task 6 —  Record the video of the best game
 
 ## Run
 
